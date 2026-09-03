@@ -1,0 +1,5 @@
+node_modules
+dist
+.env
+*.tsbuildinfo
+_to_delete
