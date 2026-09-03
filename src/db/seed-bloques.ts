@@ -29,6 +29,8 @@ import {
   batchLines,
   tests,
   settings,
+  plantRoles,
+  maintenanceTasks,
 } from "./schema-bloques.js";
 import {
   UNIDADES_FABRICA,
@@ -95,7 +97,63 @@ async function sembrarFabrica() {
       .onConflictDoNothing({ target: blockTypes.code });
   }
 
+  await sembrarMantenimiento();
+
   return porAbrev;
+}
+
+/**
+ * Puestos y tareas de fabrica.
+ *
+ * Los intervalos son un PUNTO DE PARTIDA, no una verdad. Cada prensa trae su
+ * manual y ese manual manda: nosotros no conocemos la maquina de este cliente.
+ * Son editables por la misma razon que los rangos de mezcla, y por eso nacen
+ * marcados como de fabrica.
+ */
+async function sembrarMantenimiento() {
+  const PUESTOS = [
+    { code: "operario", name: "Operario de máquina", description: "Corre la prensa y la mezcladora." },
+    { code: "ayudante", name: "Ayudante de patio", description: "Traslada, estiba y cuida el curado." },
+    { code: "encargado", name: "Encargado de planta", description: "Supervisa la producción y el mantenimiento." },
+  ];
+  for (const p of PUESTOS) {
+    await db.insert(plantRoles).values(p).onConflictDoNothing({ target: plantRoles.code });
+  }
+  const puestos = await db.select().from(plantRoles);
+  const idDe = (code: string) => puestos.find((p) => p.code === code)?.id ?? null;
+
+  const TAREAS = [
+    { code: "limpiar-molde", name: "Limpiar el molde", puesto: "operario", everyMixes: 10,
+      description: "El concreto que fragua adentro deforma el bloque siguiente y le quita resistencia." },
+    { code: "limpiar-mezcladora", name: "Limpiar la mezcladora", puesto: "operario", everyMixes: 8,
+      description: "Material endurecido en las paletas cambia la dosificación real de la mezcla." },
+    { code: "limpiar-tolva", name: "Limpiar la tolva", puesto: "ayudante", everyMixes: 20,
+      description: "Agregado apelmazado en las paredes hace que caiga menos de lo que marca." },
+    { code: "engrasar-vibrador", name: "Engrasar el vibrador", puesto: "operario", everyMixes: 50,
+      description: "Si pierde ajuste baja la compactación, y con ella la resistencia del bloque." },
+    { code: "revisar-hidraulico", name: "Revisar nivel de aceite hidráulico", puesto: "encargado", everyBatches: 20,
+      description: "Presión baja significa prensado desparejo entre un bloque y otro." },
+    { code: "medir-molde", name: "Medir el desgaste del molde", puesto: "encargado", everyBatches: 50,
+      description: "El molde gastado cambia las medidas del bloque, y con ellas el área neta con la que se juzga la resistencia." },
+    { code: "limpiar-patio", name: "Barrer el patio de curado", puesto: "ayudante", everyBatches: 5,
+      description: "Escombro y polvo en el piso manchan y descantillan el bloque curado." },
+  ];
+
+  for (const t of TAREAS) {
+    await db
+      .insert(maintenanceTasks)
+      .values({
+        code: t.code,
+        name: t.name,
+        description: t.description,
+        roleId: idDe(t.puesto),
+        everyMixes: (t as { everyMixes?: number }).everyMixes ?? null,
+        everyBatches: (t as { everyBatches?: number }).everyBatches ?? null,
+        isCustom: false,
+      })
+      .onConflictDoNothing({ target: maintenanceTasks.code });
+  }
+  console.log(`Mantenimiento: ${PUESTOS.length} puestos y ${TAREAS.length} tareas de fábrica.`);
 }
 
 async function sembrarDemo(porAbrev: Map<string, string>) {

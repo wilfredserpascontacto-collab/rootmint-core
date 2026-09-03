@@ -12,6 +12,7 @@ import { catalogItemsRoutes } from "./routes/catalog-items.js";
 import { quotesRoutes } from "./routes/quotes.js";
 import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
 import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
+import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
 
 export async function buildServer() {
   const app = Fastify({ logger: true });
@@ -37,6 +38,7 @@ export async function buildServer() {
   // Módulo de fabricación de bloques
   await app.register(bloquesCatalogoRoutes);
   await app.register(bloquesProduccionRoutes);
+  await app.register(bloquesMantenimientoRoutes);
 
   /**
    * La interfaz compilada se sirve desde este mismo servidor.

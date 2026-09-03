@@ -231,6 +231,18 @@ export const batches = pgTable(
     /** Ciclos que reporto la maquina, cuando haya maquina. Null en fase 1. */
     machineCycles: integer("machine_cycles"),
     /**
+     * Que mantenimiento estaba VENCIDO cuando se corrio este lote, congelado.
+     *
+     * Se calcula al cerrar y no se recalcula nunca, por la misma razon que el
+     * costo: dentro de seis meses, cuando alguien mire un lote con 78% de
+     * rendimiento, tiene que poder ver que el molde llevaba doce mezclas sin
+     * limpiarse. Si esto se recalculara con el estado de hoy, esa pista se
+     * perderia.
+     */
+    maintenanceOverdue: jsonb("maintenance_overdue").$type<
+      { taskId: string; nombre: string; vencidaPor: number; unidad: "mezclas" | "lotes" }[]
+    >(),
+    /**
      * Costo del lote congelado con los precios del dia. No se recalcula nunca:
      * un lote de agosto tiene que seguir costando lo que costo en agosto,
      * aunque el cemento suba en septiembre.
@@ -287,4 +299,84 @@ export const tests = pgTable(
     ...timestamps,
   },
   (t) => ({ porLote: index("tests_batch_idx").on(t.batchId) }),
+);
+
+// --- Mantenimiento y limpieza ----------------------------------------------
+
+/**
+ * Puestos de trabajo, no personas.
+ *
+ * La gente de una planta rota; el puesto se queda. Asignar una tarea a
+ * "Operario de maquina" en vez de a "Jose" significa que cuando Jose se va,
+ * no hay que reasignar nada: entra otro al puesto y las tareas siguen suyas.
+ *
+ * Ademas, hoy la planta ni existe y no hay nadie contratado. Los puestos se
+ * pueden llenar desde el primer dia; los nombres no.
+ */
+export const plantRoles = pgTable("plant_roles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+/**
+ * Tareas de limpieza y mantenimiento, disparadas por USO y no por calendario.
+ *
+ * En una bloquera esto no es aseo: es control de calidad. Si el molde no se
+ * limpia, el concreto fragua adentro y el bloque siguiente sale deforme y mas
+ * debil. Si el vibrador pierde ajuste, baja la compactacion y con ella la
+ * resistencia. Y el desgaste del molde cambia las medidas del bloque, que es
+ * justo el numero con el que se calcula el area neta.
+ *
+ * Por eso el disparador es el uso —cada N mezclas o cada N lotes— y no el dia
+ * de la semana: una semana de mucha produccion ensucia mas que una floja.
+ *
+ * Los intervalos vienen con un valor de arranque y son editables, igual que
+ * los rangos de mezcla. Y como los rangos, el valor de fabrica es una
+ * referencia, no una verdad: EL MANUAL DE LA MAQUINA MANDA. Nosotros no
+ * conocemos la prensa de este cliente.
+ */
+export const maintenanceTasks = pgTable("maintenance_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  roleId: uuid("role_id").references(() => plantRoles.id),
+  /** Cada cuantas MEZCLAS toca. Null si se mide por lotes. */
+  everyMixes: integer("every_mixes"),
+  /** Cada cuantos LOTES toca. Null si se mide por mezclas. */
+  everyBatches: integer("every_batches"),
+  /** false para las que agrego el cliente: las de fabrica no se borran. */
+  isCustom: boolean("is_custom").notNull().default(true),
+  active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+/**
+ * Cada vez que la tarea se hizo. Congela el contador de ese momento, que es
+ * lo unico que permite calcular despues "cuantas mezclas van desde entonces".
+ */
+export const maintenanceLogs = pgTable(
+  "maintenance_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => maintenanceTasks.id),
+    doneAt: timestamp("done_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Contadores acumulados de la planta al momento de hacerla. */
+    atMixes: integer("at_mixes").notNull().default(0),
+    atBatches: integer("at_batches").notNull().default(0),
+    /** Puesto que la hizo, congelado por nombre: si el puesto se renombra, esto no miente. */
+    roleName: text("role_name"),
+    notes: text("notes"),
+    createdBy: uuid("created_by").references(() => users.id),
+    ...timestamps,
+  },
+  (t) => ({ porTarea: index("maintenance_logs_task_idx").on(t.taskId) }),
 );

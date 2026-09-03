@@ -15,6 +15,13 @@
       "when": 1788403025359,
       "tag": "0001_bloques",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788450079472,
+      "tag": "0002_mantenimiento",
+      "breakpoints": true
     }
   ]
 }

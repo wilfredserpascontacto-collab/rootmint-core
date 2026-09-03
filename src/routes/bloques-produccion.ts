@@ -30,6 +30,7 @@ import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { recetaConCosto, fichaDelLote, lotesRecientes, leerResolver } from "../bloques/servicio.js";
+import { vencidasAhora } from "../bloques/mantenimiento.js";
 
 const renglonSchema = z.object({
   materialId: z.string().uuid(),
@@ -206,6 +207,12 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "La receta no tiene renglones" });
     }
 
+    /**
+     * Se calcula ANTES de insertar: lo que importa es como estaba la maquina
+     * cuando se corrio el lote, no despues de contarlo.
+     */
+    const mantenimientoVencido = await vencidasAhora();
+
     const creado = await db.transaction(async (tx) => {
       const numero = await nextCorrelativo(tx, "batch");
 
@@ -237,6 +244,7 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
           blocksBroken: body.blocksBroken,
           materialCostCents: costoTotal,
           countSource: "person",
+          maintenanceOverdue: mantenimientoVencido.length ? mantenimientoVencido : null,
           curingDays: null,
           notes: body.notes,
           createdBy: getUserId(req),

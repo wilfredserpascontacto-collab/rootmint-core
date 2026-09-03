@@ -156,6 +156,7 @@ export interface Ficha {
     bloquesRotos: number;
     origenConteo: "person" | "machine";
     ciclosMaquina: number | null;
+    mantenimientoVencido: { taskId: string; nombre: string; vencidaPor: number; unidad: "mezclas" | "lotes" }[];
     notas: string | null;
   };
   receta: { id: string; nombre: string; estado: string };
@@ -221,6 +222,37 @@ export interface Ajuste {
   valor: unknown;
   esDelCliente: boolean;
   norma: { min?: number; max?: number; valor?: number; fuente: string } | null;
+}
+
+export type EstadoTarea = "al dia" | "por vencer" | "vencida" | "nunca hecha";
+
+export interface TareaMantenimiento {
+  id: string;
+  code: string;
+  nombre: string;
+  descripcion: string | null;
+  esDeFabrica: boolean;
+  puesto: { id: string; nombre: string } | null;
+  cada: number;
+  unidad: "mezclas" | "lotes";
+  desde: number;
+  faltan: number;
+  estado: EstadoTarea;
+  ultimaVez: { fecha: string; puesto: string | null; notas: string | null } | null;
+}
+
+export interface Tablero {
+  contadores: { mezclas: number; lotes: number };
+  tareas: TareaMantenimiento[];
+  resumen: { vencidas: number; porVencer: number; total: number };
+}
+
+export interface Puesto {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  active: boolean;
 }
 
 export interface OrdenDelDia {

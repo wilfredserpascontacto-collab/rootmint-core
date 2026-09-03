@@ -192,6 +192,30 @@ export default function FichaLote() {
             </p>
           )}
           <div style={{ height: 1, background: "var(--linea-suave)" }} />
+          {/* El mantenimiento que estaba vencido cuando se corrió este lote,
+              congelado al cerrarlo. Es la pista que explica, meses después,
+              por qué un lote rindió mal. */}
+          <span className="lbl">Mantenimiento al correrlo</span>
+          {f.lote.mantenimientoVencido.length > 0 ? (
+            <div className="pila" style={{ gap: 8 }}>
+              {f.lote.mantenimientoVencido.map((m) => (
+                <div key={m.taskId} className="fila" style={{ gap: 10, alignItems: "flex-start" }}>
+                  <IconoAviso color="var(--falla)" size={16} />
+                  <span style={{ fontSize: 13.5, lineHeight: 1.45 }}>
+                    <strong>{m.nombre}</strong> estaba vencida por {m.vencidaPor} {m.unidad}.
+                  </span>
+                </div>
+              ))}
+              <span style={{ fontSize: 13, lineHeight: 1.45, color: "var(--apagado)" }}>
+                No impidió producir. Queda anotado por si este lote sale distinto a los demás.
+              </span>
+            </div>
+          ) : (
+            <span style={{ fontSize: 14, color: "var(--apagado)", lineHeight: 1.5 }}>
+              Sin mantenimiento vencido cuando se corrió.
+            </span>
+          )}
+          <div style={{ height: 1, background: "var(--linea-suave)" }} />
           <span className="lbl">De dónde salió el conteo</span>
           <span style={{ fontSize: 14, color: "var(--apagado)", lineHeight: 1.5 }}>
             {f.lote.origenConteo === "person"

@@ -299,6 +299,7 @@ export async function fichaDelLote(batchId: string) {
       bloquesRotos: lote.blocksBroken,
       origenConteo: lote.countSource,
       ciclosMaquina: lote.machineCycles,
+      mantenimientoVencido: lote.maintenanceOverdue ?? [],
       notas: lote.notes,
     },
     receta: { id: receta.id, nombre: receta.name, estado: ESTADO_RECETA[receta.status] },
