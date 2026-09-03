@@ -1,0 +1,279 @@
+/*
+ * Sistema visual de BloquesTitán: instrumento de medición industrial.
+ *
+ * Concreto y grafito, un amarillo de maquinaria, tipografía condensada y
+ * numerales tabulares. Nada decorativo: las cifras mandan.
+ */
+
+:root {
+  --suelo: #e7e9e5;
+  --superficie: #ffffff;
+  --grafito: #1a1f23;
+  --tinta: #12161a;
+  --apagado: #616a6e;
+  --tenue: #8a9296;
+  --linea: #cdd2cd;
+  --linea-suave: #e4e6e4;
+  --ambar: #e0a400;
+  --ambar-fondo: #fbf3dc;
+  --ambar-tinta: #8a6400;
+
+  --cumple: #2c6a4e;
+  --cumple-fondo: #dceae0;
+  --falla: #a03028;
+  --falla-fondo: #f7e4e2;
+  /* Gris a propósito: "no se sabe" no debe leerse como aprobado. */
+  --incierto: #6e7679;
+  --incierto-fondo: #e4e6e4;
+
+  --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --texto: "Barlow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #raiz { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--suelo);
+  color: var(--tinta);
+  font-family: var(--texto);
+  font-size: 15px;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--ambar-tinta); }
+a:hover { color: #6b4e00; }
+
+button, input, select { font: inherit; color: inherit; }
+
+.cond { font-family: var(--cond); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.lbl {
+  font-family: var(--cond);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--tenue);
+}
+
+/* --- Estructura ---------------------------------------------------------- */
+
+.app { display: flex; flex-direction: column; min-height: 100%; }
+
+.barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 clamp(16px, 3vw, 48px);
+  height: 68px;
+  background: var(--grafito);
+  color: var(--suelo);
+  flex: 0 0 auto;
+}
+
+.marca {
+  font-family: var(--cond);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  color: var(--suelo);
+}
+
+.nav { display: flex; align-items: center; gap: clamp(14px, 2vw, 28px); }
+
+.nav a {
+  font-family: var(--cond);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tenue);
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.nav a:hover { color: var(--suelo); }
+.nav a.activo { color: var(--suelo); border-bottom-color: var(--ambar); }
+
+.lienzo {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: clamp(20px, 3vw, 36px) clamp(16px, 3vw, 48px) 48px;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 inline;
+}
+
+.titulo { font-family: var(--cond); font-size: clamp(30px, 4vw, 44px); font-weight: 700; line-height: 1; margin: 0; }
+
+/* --- Piezas -------------------------------------------------------------- */
+
+.tarjeta { background: var(--superficie); border: 1px solid var(--linea); }
+.tarjeta.fuerte { border: 2px solid var(--tinta); }
+
+.rejilla { display: grid; gap: 28px; align-items: start; }
+.rejilla.dos-uno { grid-template-columns: 2fr 1fr; }
+.rejilla.uno-uno { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.pila { display: flex; flex-direction: column; }
+.fila { display: flex; align-items: center; }
+
+.insignia {
+  font-family: var(--cond);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  color: #fff;
+  white-space: nowrap;
+}
+.insignia.cumple { background: var(--cumple); }
+.insignia.falla { background: var(--falla); }
+.insignia.incierto { background: var(--incierto); }
+.insignia.aviso { background: var(--ambar); color: var(--tinta); }
+.insignia.hueca { background: transparent; color: var(--apagado); border: 1px solid var(--linea); }
+
+.cifra {
+  font-family: var(--cond);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+}
+.cifra.enorme { font-size: clamp(52px, 7vw, 76px); }
+.cifra.grande { font-size: clamp(32px, 4vw, 40px); }
+.cifra.media { font-size: 32px; }
+
+.boton {
+  font-family: var(--cond);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 11px 18px;
+  background: var(--tinta);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+}
+.boton:hover { background: #000; }
+.boton.hueco { background: transparent; color: var(--tinta); border: 1px solid var(--tinta); }
+.boton.hueco:hover { background: var(--linea-suave); }
+.boton:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.entrada {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  padding: 9px 12px;
+  border: 1px solid #a9b0aa;
+  background: #fff;
+  min-height: 44px;
+}
+.entrada.tocada { border: 2px solid var(--ambar); padding: 8px 11px; }
+.entrada:focus { outline: 2px solid var(--tinta); outline-offset: 1px; }
+
+/* --- Tablas -------------------------------------------------------------- */
+
+.tabla { width: 100%; border-collapse: collapse; }
+.tabla th {
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--linea);
+  font-family: var(--cond);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+.tabla td { padding: 14px 16px; border-bottom: 1px solid var(--linea-suave); }
+.tabla tr:last-child td { border-bottom: none; }
+.tabla .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tabla tfoot td { font-weight: 600; border-top: 1px solid var(--linea); border-bottom: none; }
+.envoltura-tabla { overflow-x: auto; }
+
+/* --- Avisos -------------------------------------------------------------- */
+
+.aviso { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; line-height: 1.5; }
+.aviso.ambar { background: var(--ambar-fondo); border-left: 3px solid var(--ambar); }
+.aviso.rojo { background: var(--falla-fondo); border-left: 3px solid var(--falla); }
+.aviso.neutro { background: #edefea; border-left: 3px solid var(--linea); color: var(--apagado); }
+.aviso svg { flex: 0 0 auto; margin-top: 1px; }
+
+/* --- Banda de rango ------------------------------------------------------ */
+
+/* El riel es el eje completo; la banda clara es el rango vigente. Tienen que
+   distinguirse a un metro de la pantalla, no solo de cerca. */
+.banda { position: relative; height: 26px; background: #d6d9d4; }
+.banda .rango {
+  position: absolute; top: 0; bottom: 0;
+  background: #ffffff;
+  border-left: 2px solid var(--apagado);
+  border-right: 2px solid var(--apagado);
+}
+.banda .marca { position: absolute; top: -4px; bottom: -4px; width: 3px; }
+.norma-linea { position: relative; height: 7px; }
+.norma-linea span { position: absolute; top: 0; height: 4px; background: var(--tinta); }
+
+/* --- Pantalla de planta -------------------------------------------------- */
+
+.planta { max-width: 560px; margin: 0 auto; width: 100%; }
+
+.contador { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.contador .paso {
+  width: 72px; height: 72px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--cond); font-size: 34px; font-weight: 600; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  border: 2px solid var(--tinta);
+  background: var(--suelo); color: var(--tinta);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.contador .paso.mas { background: var(--tinta); color: #fff; }
+.contador .paso:active { transform: translateY(1px); }
+.contador .valor { font-family: var(--cond); font-variant-numeric: tabular-nums; font-size: 68px; font-weight: 500; line-height: 1; }
+
+.progreso { display: flex; height: 10px; background: var(--linea-suave); }
+.progreso span { background: var(--tinta); }
+
+/* --- Estados ------------------------------------------------------------- */
+
+.cargando, .vacio { padding: 48px 16px; text-align: center; color: var(--apagado); }
+
+.error {
+  background: var(--falla-fondo);
+  border-left: 3px solid var(--falla);
+  padding: 14px 18px;
+  line-height: 1.5;
+}
+
+/* --- Angosto ------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .rejilla.dos-uno, .rejilla.uno-uno { grid-template-columns: 1fr; }
+  .lienzo { gap: 20px; }
+}
+
+@media (max-width: 560px) {
+  .barra { height: auto; padding: 12px 16px; flex-direction: column; align-items: flex-start; gap: 10px; }
+  .nav { flex-wrap: wrap; gap: 14px; }
+}

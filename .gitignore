@@ -3,3 +3,6 @@ dist
 .env
 *.tsbuildinfo
 _to_delete
+dist-web
+web/node_modules
+web/tsconfig.tsbuildinfo

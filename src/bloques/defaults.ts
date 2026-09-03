@@ -41,7 +41,7 @@ export const UNIDADES_FABRICA = [
   { abbreviation: "qq", name: "Quintal", kind: "mass", factorMilli: 45_360 },
   { abbreviation: "bolsa", name: "Bolsa de cemento (42.5 kg)", kind: "mass", factorMilli: 42_500 },
   { abbreviation: "L", name: "Litro", kind: "volume", factorMilli: 1_000 },
-  { abbreviation: "m3", name: "Metro cubico", kind: "volume", factorMilli: 1_000_000 },
+  { abbreviation: "m3", name: "Metro cúbico", kind: "volume", factorMilli: 1_000_000 },
   { abbreviation: "carretilla", name: "Carretilla (~65 L)", kind: "volume", factorMilli: 65_000 },
   { abbreviation: "balde", name: "Balde (~19 L)", kind: "volume", factorMilli: 19_000 },
   { abbreviation: "palada", name: "Palada (~3 L)", kind: "volume", factorMilli: 3_000 },
@@ -54,9 +54,9 @@ export const UNIDADES_FABRICA = [
 
 export const MATERIALES_FABRICA = [
   { code: "cemento", name: "Cemento gris", category: "cementante", purchaseUnit: "bolsa de 42.5 kg", dosing: "bolsa", contentPerPurchaseMilli: 1_000, bulkDensityKgM3: 1_440 },
-  { code: "arena", name: "Arena", category: "agregado fino", purchaseUnit: "metro cubico", dosing: "carretilla", contentPerPurchaseMilli: 15_385, bulkDensityKgM3: 1_600 },
-  { code: "grava", name: "Grava / chispa", category: "agregado grueso", purchaseUnit: "metro cubico", dosing: "carretilla", contentPerPurchaseMilli: 15_385, bulkDensityKgM3: 1_500 },
-  { code: "agua", name: "Agua", category: "agua", purchaseUnit: "metro cubico", dosing: "L", contentPerPurchaseMilli: 1_000_000, bulkDensityKgM3: 1_000 },
+  { code: "arena", name: "Arena", category: "agregado fino", purchaseUnit: "metro cúbico", dosing: "carretilla", contentPerPurchaseMilli: 15_385, bulkDensityKgM3: 1_600 },
+  { code: "grava", name: "Grava / chispa", category: "agregado grueso", purchaseUnit: "metro cúbico", dosing: "carretilla", contentPerPurchaseMilli: 15_385, bulkDensityKgM3: 1_500 },
+  { code: "agua", name: "Agua", category: "agua", purchaseUnit: "metro cúbico", dosing: "L", contentPerPurchaseMilli: 1_000_000, bulkDensityKgM3: 1_000 },
 ] as const;
 
 // --- Tipos de bloque -------------------------------------------------------
@@ -88,32 +88,32 @@ export function areasDe(t: {
 
 export const RANGOS_FABRICA: Record<string, RangoAjustable> = {
   "rango.modulo_finura": {
-    etiqueta: "Modulo de finura del agregado",
+    etiqueta: "Módulo de finura del agregado",
     unidad: "",
     fabrica: { min: 3.5, max: 4.17 },
-    norma: { min: 3.5, max: 4.17, fuente: "Columbia Machine, granulometria para bloque" },
-    ayuda: "Fuera de este rango la textura y la compactacion se degradan.",
+    norma: { min: 3.5, max: 4.17, fuente: "Columbia Machine, granulometría para bloque" },
+    ayuda: "Fuera de este rango la textura y la compactación se degradan.",
   },
   "rango.finos_malla50": {
     etiqueta: "Finos que pasan la malla No. 50",
     unidad: "%",
     fabrica: { min: 12, max: 15 },
     norma: { min: 12, max: 15, fuente: "Columbia Machine, % del volumen del agregado" },
-    ayuda: "Con menos finos el bloque se desgrana; con mas, pierde resistencia.",
+    ayuda: "Con menos finos el bloque se desgrana; con más, pierde resistencia.",
   },
   "rango.cemento_agregado": {
-    etiqueta: "Proporcion cemento : agregado",
+    etiqueta: "Proporción cemento : agregado",
     unidad: "1 : x",
     fabrica: { min: 6, max: 9 },
-    norma: { min: 6, max: 9, fuente: "Practica habitual; NIS recomienda 1:8 para bloque hueco" },
+    norma: { min: 6, max: 9, fuente: "Práctica habitual; NIS recomienda 1:8 para bloque hueco" },
     ayuda: "Bajar el cemento abarata el bloque y le quita resistencia. Las dos cosas a la vez.",
   },
   "rango.agua_cemento": {
-    etiqueta: "Relacion agua : cemento",
+    etiqueta: "Relación agua : cemento",
     unidad: "",
     fabrica: { min: 0.35, max: 0.5 },
-    norma: { valor: 0.5, fuente: "Optimo citado para bloque; el prensado en seco baja mas" },
-    ayuda: "El bloque prensado va casi seco. De mas agua sale panzon y de menos no compacta.",
+    norma: { valor: 0.5, fuente: "Óptimo citado para bloque; el prensado en seco baja más" },
+    ayuda: "El bloque prensado va casi seco. De más agua sale panzón y de menos no compacta.",
   },
 };
 
@@ -121,19 +121,19 @@ export const RANGOS_FABRICA: Record<string, RangoAjustable> = {
 
 export const PROCESO_FABRICA = {
   "proceso.dias_curado": {
-    etiqueta: "Dias minimos de curado",
+    etiqueta: "Días mínimos de curado",
     fabrica: 14,
-    ayuda: "Antes de este plazo el bloque todavia no llego a su resistencia.",
+    ayuda: "Antes de este plazo el bloque todavía no llegó a su resistencia.",
   } as ValorAjustable<number>,
   "proceso.edad_ensayo": {
     etiqueta: "Edad del bloque al ensayar",
     fabrica: 28,
-    ayuda: "Es la edad en la que las normas fijan la resistencia caracteristica.",
+    ayuda: "Es la edad en la que las normas fijan la resistencia característica.",
   } as ValorAjustable<number>,
   "proceso.resistencia_objetivo_mpa_milli": {
     etiqueta: "Resistencia objetivo por defecto",
     fabrica: 13_800,
-    ayuda: "13.8 MPa sobre area NETA es el minimo de ASTM C90 para bloque de carga.",
+    ayuda: "13.8 MPa sobre área NETA es el mínimo de ASTM C90 para bloque de carga.",
   } as ValorAjustable<number>,
 };
 

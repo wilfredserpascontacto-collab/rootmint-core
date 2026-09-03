@@ -114,7 +114,7 @@ export function indicadoresDeMezcla(
         ? "La receta no tiene cementante con densidad cargada."
         : volAgregadoL <= 0
           ? "La receta no tiene agregado."
-          : "Falta la densidad de algun material para pasar a volumen.",
+          : "Falta la densidad de algún material para pasar a volumen.",
     });
   }
 
@@ -136,7 +136,7 @@ export function indicadoresDeMezcla(
     out.push({
       key,
       disponible: false,
-      motivo: "Es una propiedad del agregado: sale de un ensayo de granulometria, no de la receta.",
+      motivo: "Es una propiedad del agregado: sale de un ensayo de granulometría, no de la receta.",
     });
   }
 
