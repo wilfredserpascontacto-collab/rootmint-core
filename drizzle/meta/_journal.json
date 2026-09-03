@@ -8,6 +8,13 @@
       "when": 1787522279001,
       "tag": "0000_faulty_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788403025359,
+      "tag": "0001_bloques",
+      "breakpoints": true
     }
   ]
 }

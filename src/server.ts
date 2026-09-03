@@ -6,6 +6,8 @@ import { customersRoutes } from "./routes/customers.js";
 import { contactsRoutes } from "./routes/contacts.js";
 import { catalogItemsRoutes } from "./routes/catalog-items.js";
 import { quotesRoutes } from "./routes/quotes.js";
+import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
+import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
 
 export async function buildServer() {
   const app = Fastify({ logger: true });
@@ -27,6 +29,10 @@ export async function buildServer() {
   await app.register(contactsRoutes);
   await app.register(catalogItemsRoutes);
   await app.register(quotesRoutes);
+
+  // Módulo de fabricación de bloques
+  await app.register(bloquesCatalogoRoutes);
+  await app.register(bloquesProduccionRoutes);
 
   return app;
 }

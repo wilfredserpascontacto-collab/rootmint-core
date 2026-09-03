@@ -22,7 +22,7 @@ import {
   jsonb,
   index,
 } from "drizzle-orm/pg-core";
-import { users } from "./schema";
+import { users } from "./schema.js";
 
 // --- Enums -----------------------------------------------------------------
 
@@ -48,6 +48,21 @@ export const unitKindEnum = pgEnum("unit_kind", ["mass", "volume", "count"]);
 
 /** Quien hizo el ensayo. La prensa propia es el caso normal en esta planta. */
 export const testSourceEnum = pgEnum("test_source", ["plant", "lab"]);
+
+/**
+ * De donde salio un numero: lo escribio una persona o lo reporto la maquina.
+ *
+ * Hoy (fase 1) todo dice "person": el software es la orden de trabajo y nadie
+ * lo conecta al fierro. En la fase 2 la maquina va a reportar sus ciclos, y
+ * ese dia van a convivir dos cifras para el mismo lote —600 ciclos contados
+ * por la prensa contra 470 buenos escritos por el operario— que NO son la
+ * misma medicion y no deben promediarse ni pisarse.
+ *
+ * Agregar esta columna despues obligaria a inventar el origen de todo lo ya
+ * guardado. Nace ahora, con valor por defecto, y hasta la fase 2 no cuesta
+ * nada.
+ */
+export const dataSourceEnum = pgEnum("data_source", ["person", "machine"]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -211,6 +226,10 @@ export const batches = pgTable(
     mixes: integer("mixes").notNull().default(1),
     blocksGood: integer("blocks_good").notNull().default(0),
     blocksBroken: integer("blocks_broken").notNull().default(0),
+    /** Quien conto los bloques. Ver dataSourceEnum. */
+    countSource: dataSourceEnum("count_source").notNull().default("person"),
+    /** Ciclos que reporto la maquina, cuando haya maquina. Null en fase 1. */
+    machineCycles: integer("machine_cycles"),
     /**
      * Costo del lote congelado con los precios del dia. No se recalcula nunca:
      * un lote de agosto tiene que seguir costando lo que costo en agosto,
@@ -261,6 +280,8 @@ export const tests = pgTable(
     strengthMpaMilli: integer("strength_mpa_milli").notNull(),
     basis: strengthBasisEnum("basis").notNull(),
     source: testSourceEnum("source").notNull().default("plant"),
+    /** Quien leyo la prensa. Ver dataSourceEnum. */
+    readingSource: dataSourceEnum("reading_source").notNull().default("person"),
     notes: text("notes"),
     createdBy: uuid("created_by").references(() => users.id),
     ...timestamps,
