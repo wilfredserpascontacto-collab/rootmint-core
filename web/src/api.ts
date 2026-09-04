@@ -194,6 +194,9 @@ export interface LoteResumen {
   mezclas: number;
   bloquesBuenos: number;
   bloquesRotos: number;
+  /** Nulos cuando la receta no dice cuántos bloques salen de una mezcla. */
+  bloquesEsperados: number | null;
+  rendimientoPct: number | null;
   costoMaterialCents: number;
   recetaNombre: string | null;
   tipoBloque: string | null;

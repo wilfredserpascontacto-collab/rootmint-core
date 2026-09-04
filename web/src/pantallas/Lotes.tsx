@@ -31,8 +31,10 @@ export default function Lotes() {
                 <th>Receta</th>
                 <th>Producido</th>
                 <th className="num">Mezclas</th>
+                <th className="num">Salieron</th>
                 <th className="num">Buenos</th>
                 <th className="num">Rotos</th>
+                <th className="num">Rendimiento</th>
                 <th className="num">Costo material</th>
                 <th className="num">Real / bloque</th>
               </tr>
@@ -48,8 +50,16 @@ export default function Lotes() {
                   <td>{l.recetaNombre ?? "—"} <span style={{ color: "var(--tenue)" }}>· {l.tipoBloque ?? ""}</span></td>
                   <td className="mono" style={{ fontSize: 14 }}>{fecha(l.producidoEl)}</td>
                   <td className="num">{l.mezclas}</td>
+                  {/* Salieron de los que se esperaban: sin el denominador,
+                      "470 buenos" no dice si el lote salió bien o mal. */}
+                  <td className="num" style={{ color: "var(--apagado)", whiteSpace: "nowrap" }}>
+                    {l.bloquesEsperados !== null
+                      ? `${l.bloquesBuenos + l.bloquesRotos} de ${l.bloquesEsperados}`
+                      : l.bloquesBuenos + l.bloquesRotos}
+                  </td>
                   <td className="num">{l.bloquesBuenos}</td>
                   <td className="num" style={{ color: l.bloquesRotos > 0 ? "var(--falla)" : undefined }}>{l.bloquesRotos}</td>
+                  <td className="num"><Rendimiento pct={l.rendimientoPct} /></td>
                   <td className="num">{money(l.costoMaterialCents)}</td>
                   <td className="num" style={{ fontWeight: 500 }}>
                     {money(Math.round(l.costoMaterialCents / Math.max(1, l.bloquesBuenos)))}
@@ -60,6 +70,30 @@ export default function Lotes() {
           </table>
         </div>
       )}
+
+      <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: "var(--apagado)", maxWidth: "70ch" }}>
+        El rendimiento es lo que compara un lote con otro: son los bloques buenos contra los que la
+        receta esperaba. Un lote grande que rindió mal produjo más bloques y menos negocio que uno
+        chico que rindió bien.
+      </p>
     </main>
   );
+}
+
+/**
+ * El rendimiento con su color.
+ *
+ * El umbral no es un capricho: por debajo de 90% la ficha del lote ya lo
+ * marca en rojo, así que la lista usa el mismo corte. Que dos pantallas
+ * llamen "malo" a cosas distintas es peor que no colorear nada.
+ *
+ * Sin receta que diga cuántos bloques se esperaban no hay contra qué
+ * comparar, y entonces se dice que no se sabe en vez de inventar un cero.
+ */
+function Rendimiento({ pct }: { pct: number | null }) {
+  if (pct === null) {
+    return <span style={{ color: "var(--incierto)" }}>—</span>;
+  }
+  const color = pct < 90 ? "var(--falla)" : pct >= 100 ? "var(--cumple)" : "var(--tinta)";
+  return <span style={{ color, fontWeight: 500 }}>{pct}%</span>;
 }

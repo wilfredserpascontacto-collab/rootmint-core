@@ -362,8 +362,19 @@ export async function ajustesResueltos() {
   return [...rangos, ...numeros];
 }
 
+/**
+ * La lista de lotes.
+ *
+ * Devuelve los ESPERADOS y el RENDIMIENTO, no solo los buenos y los rotos.
+ *
+ * Sin esos dos, la lista muestra las partes y esconde el resultado: 470
+ * bloques buenos no dice nada hasta saber si se esperaban 500 o 600, y al
+ * lado de un lote de 57 el de 470 parece el mejor de los dos aunque haya
+ * rendido mucho peor. Un lote es bueno o malo por la proporción, y la
+ * proporción es justo lo que no se podía ver sin entrar a cada uno.
+ */
 export async function lotesRecientes(limite = 50) {
-  return db
+  const filas = await db
     .select({
       id: batches.id,
       numero: batches.number,
@@ -374,6 +385,7 @@ export async function lotesRecientes(limite = 50) {
       costoMaterialCents: batches.materialCostCents,
       recetaNombre: recipes.name,
       tipoBloque: blockTypes.code,
+      porMezcla: recipes.expectedBlocksPerMix,
     })
     .from(batches)
     .leftJoin(recipes, eq(batches.recipeId, recipes.id))
@@ -381,6 +393,23 @@ export async function lotesRecientes(limite = 50) {
     .where(isNull(batches.deletedAt))
     .orderBy(desc(batches.producedAt))
     .limit(limite);
+
+  return filas.map(({ porMezcla, ...f }) => {
+    /**
+     * Sin bloques por mezcla en la receta no hay contra qué comparar, y
+     * entonces el rendimiento se devuelve nulo en vez de cero: cero se
+     * leería como "rindió pésimo" cuando lo cierto es "no se sabe".
+     */
+    const esperados = porMezcla ? porMezcla * f.mezclas : null;
+    return {
+      ...f,
+      bloquesEsperados: esperados,
+      rendimientoPct:
+        esperados && esperados > 0
+          ? Math.round((f.bloquesBuenos / esperados) * 1000) / 10
+          : null,
+    };
+  });
 }
 
 export { ESTADO_RECETA };
