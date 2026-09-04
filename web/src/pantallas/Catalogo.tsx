@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { api, cantidad, money, type Material } from "../api";
+import { api, cantidad, money, type Material, type Unidad } from "../api";
 import { useApi } from "../usar";
-import { Cargando, Fallo, IconoAviso, IconoInfo } from "../comp/piezas";
+import { Campo, Cargando, Fallo, IconoAviso, IconoInfo } from "../comp/piezas";
 
 /**
  * El catálogo de materiales.
@@ -12,6 +12,7 @@ import { Cargando, Fallo, IconoAviso, IconoInfo } from "../comp/piezas";
  */
 export default function Catalogo() {
   const { dato, error, cargando, recargar } = useApi<Material[]>("/bloques/materiales");
+  const { dato: unidades } = useApi<Unidad[]>("/bloques/unidades");
 
   if (cargando) return <main className="lienzo"><Cargando que="el catálogo" /></main>;
   if (error) return <main className="lienzo"><Fallo error={error} /></main>;
@@ -21,7 +22,12 @@ export default function Catalogo() {
 
   return (
     <main className="lienzo">
-      <h1 className="titulo">Catálogo de materiales</h1>
+      <div className="fila" style={{ justifyContent: "space-between", alignItems: "flex-end", gap: 24, flexWrap: "wrap" }}>
+        <h1 className="titulo">Catálogo de materiales</h1>
+        <span className="mono" style={{ fontSize: 13, color: "var(--apagado)" }}>
+          {materiales.length} {materiales.length === 1 ? "material" : "materiales"}
+        </span>
+      </div>
 
       <div className="tarjeta envoltura-tabla">
         <table className="tabla">
@@ -41,6 +47,8 @@ export default function Catalogo() {
           </tbody>
         </table>
       </div>
+
+      <NuevoMaterial unidades={unidades ?? []} alCrear={recargar} />
 
       <div className="rejilla uno-uno">
         {sinPrecio.length > 0 ? (
@@ -69,6 +77,147 @@ export default function Catalogo() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Agregar un material.
+ *
+ * El campo que se presta a confusión es el de equivalencia. Un material se
+ * COMPRA en una unidad (el metro cúbico de arena, la bolsa de cemento) y se
+ * DOSIFICA en otra (la carretilla, la bolsa). El costo del bloque sale de
+ * dividir el precio de compra entre cuántas unidades de dosificación caben en
+ * una de compra. Si ese número está mal, todo el costo está mal, así que el
+ * formulario lo pregunta con todas las letras y muestra el resultado.
+ */
+function NuevoMaterial({ unidades, alCrear }: { unidades: Unidad[]; alCrear: () => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [categoria, setCategoria] = useState("");
+  const [unidadCompra, setUnidadCompra] = useState("");
+  const [precio, setPrecio] = useState("");
+  const [dosingUnitId, setDosingUnitId] = useState("");
+  const [equivale, setEquivale] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [falla, setFalla] = useState<string | null>(null);
+
+  const precioCents = Math.round(Number(precio.replace(",", ".")) * 100);
+  const equivaleN = Number(equivale.replace(",", "."));
+  const dosing = unidades.find((u) => u.id === dosingUnitId);
+
+  const listo =
+    nombre.trim() !== "" &&
+    unidadCompra.trim() !== "" &&
+    Number.isFinite(precioCents) && precioCents >= 0 &&
+    dosingUnitId !== "" &&
+    Number.isFinite(equivaleN) && equivaleN > 0;
+
+  const porUnidad = listo && precioCents > 0 ? precioCents / equivaleN : null;
+
+  function limpiar() {
+    setNombre(""); setCategoria(""); setUnidadCompra(""); setPrecio("");
+    setDosingUnitId(""); setEquivale(""); setFalla(null);
+  }
+
+  async function crear() {
+    if (!listo) return;
+    setOcupado(true); setFalla(null);
+    try {
+      await api.post("/bloques/materiales", {
+        // El código sale del nombre: un campo menos que llenar y explicar.
+        code: nombre.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || `material-${Date.now()}`,
+        name: nombre.trim(),
+        ...(categoria.trim() ? { category: categoria.trim() } : {}),
+        purchaseUnit: unidadCompra.trim(),
+        purchasePriceCents: precioCents,
+        dosingUnitId,
+        contentPerPurchaseMilli: Math.round(equivaleN * 1000),
+      });
+      limpiar();
+      setAbierto(false);
+      alCrear();
+    } catch (e) {
+      setFalla(e instanceof Error ? e.message : String(e));
+    } finally { setOcupado(false); }
+  }
+
+  if (!abierto) {
+    return (
+      <button className="boton hueco" style={{ alignSelf: "flex-start", minHeight: 44 }} onClick={() => setAbierto(true)}>
+        Agregar un material
+      </button>
+    );
+  }
+
+  return (
+    <div className="tarjeta pila" style={{ gap: 18, padding: "22px 24px 24px" }}>
+      <span className="lbl">Material nuevo</span>
+
+      <div className="rejilla uno-uno" style={{ gap: 16 }}>
+        <Campo etiqueta="Nombre">
+          <input className="entrada" style={{ minHeight: 44 }} value={nombre} placeholder="Arena de río"
+            onChange={(e) => setNombre(e.target.value)} aria-label="Nombre del material" />
+        </Campo>
+        <Campo etiqueta="Categoría" ayuda="Opcional. Sirve para agrupar: agregado, cemento, aditivo.">
+          <input className="entrada" style={{ minHeight: 44 }} value={categoria} placeholder="agregado"
+            onChange={(e) => setCategoria(e.target.value)} aria-label="Categoría" />
+        </Campo>
+      </div>
+
+      <div className="rejilla uno-uno" style={{ gap: 16 }}>
+        <Campo etiqueta="Se compra por" ayuda="Como se lo factura el proveedor: m³, bolsa de 42.5 kg, quintal.">
+          <input className="entrada" style={{ minHeight: 44 }} value={unidadCompra} placeholder="m³"
+            onChange={(e) => setUnidadCompra(e.target.value)} aria-label="Unidad de compra" />
+        </Campo>
+        <Campo etiqueta="Precio de esa unidad">
+          <div className="fila" style={{ gap: 8 }}>
+            <span style={{ color: "var(--apagado)", fontSize: 16 }}>$</span>
+            <input className="entrada" style={{ flex: 1, minWidth: 0, minHeight: 44 }} value={precio}
+              inputMode="decimal" placeholder="28.00" onChange={(e) => setPrecio(e.target.value)} aria-label="Precio" />
+          </div>
+        </Campo>
+      </div>
+
+      <Campo
+        etiqueta="Con qué se mide en la planta"
+        ayuda="La unidad con la que el operario dosifica la mezcla: carretillas, baldes, bolsas, litros."
+      >
+        <select className="entrada" style={{ minHeight: 44, fontFamily: "var(--texto)" }}
+          value={dosingUnitId} onChange={(e) => setDosingUnitId(e.target.value)} aria-label="Unidad de dosificación">
+          <option value="">— elija —</option>
+          {unidades.map((u) => (
+            <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>
+          ))}
+        </select>
+      </Campo>
+
+      <Campo etiqueta={`Cuántas ${dosing ? dosing.name.toLowerCase() + "s" : "unidades"} salen de ${unidadCompra.trim() ? `1 ${unidadCompra.trim()}` : "una unidad de compra"}`}>
+        <input className="entrada" style={{ width: 140, minHeight: 44 }} value={equivale} inputMode="decimal"
+          placeholder="11" onChange={(e) => setEquivale(e.target.value)} aria-label="Equivalencia" />
+        {porUnidad !== null && dosing ? (
+          <span className="mono" style={{ fontSize: 14 }}>
+            Sale a ${(porUnidad / 100).toFixed(4)} por {dosing.abbreviation}
+          </span>
+        ) : (
+          <span style={{ fontSize: 13, color: "var(--tenue)", lineHeight: 1.45 }}>
+            De este número sale el costo del bloque. Si está mal, todo el costo está mal: vale la pena
+            medirlo una vez de verdad en vez de estimarlo.
+          </span>
+        )}
+      </Campo>
+
+      {falla ? <div className="error">{falla}</div> : null}
+
+      <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+        <button className="boton" style={{ minHeight: 44 }} onClick={crear} disabled={!listo || ocupado}>
+          {ocupado ? "Guardando…" : "Agregar al catálogo"}
+        </button>
+        <button className="boton hueco" style={{ minHeight: 44 }} onClick={() => { setAbierto(false); limpiar(); }}>
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }
 

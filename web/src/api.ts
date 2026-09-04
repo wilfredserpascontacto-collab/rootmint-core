@@ -255,15 +255,54 @@ export interface Puesto {
   active: boolean;
 }
 
+export interface RecetaCorrible {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  expectedBlocksPerMix: number | null;
+  tipoBloque: string | null;
+  tipoCodigo: string | null;
+}
+
 export interface OrdenDelDia {
-  recetas: {
-    id: string;
-    code: string;
-    name: string;
-    status: string;
-    expectedBlocksPerMix: number | null;
-    tipoBloque: string | null;
-    tipoCodigo: string | null;
-  }[];
+  /** Respaldadas por un ensayo que cumple. */
+  recetas: RecetaCorrible[];
+  /** Todavía sin ensayo que las respalde. Se pueden correr; no se pueden prometer. */
+  enPrueba: RecetaCorrible[];
   ultimoLote: { id: string; number: number } | null;
+}
+
+export interface Unidad {
+  id: string;
+  name: string;
+  abbreviation: string;
+  kind: "mass" | "volume" | "count";
+  factorMilli: number;
+}
+
+export interface TipoBloque {
+  id: string;
+  code: string;
+  name: string;
+  lengthMm: number;
+  heightMm: number;
+  widthMm: number;
+  targetStrengthMpaMilli: number | null;
+  targetStrengthBasis: "net" | "gross" | null;
+}
+
+export interface RecetaFila {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  expectedBlocksPerMix: number | null;
+  blockTypeId: string;
+  tipoBloque: string | null;
+}
+
+/** Lo que devuelve POST /bloques/lotes/:id/ensayos: la ficha más el aviso de edad. */
+export interface FichaConAviso extends Ficha {
+  avisoEdad: string | null;
 }

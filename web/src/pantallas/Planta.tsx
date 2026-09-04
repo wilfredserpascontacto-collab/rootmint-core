@@ -25,14 +25,25 @@ export default function Planta() {
   const [guardando, setGuardando] = useState(false);
   const [falla, setFalla] = useState<string | null>(null);
 
+  /**
+   * Se puede correr una receta sin validar, y eso es a propósito.
+   *
+   * Una receta se valida cuando un lote suyo pasa el ensayo; el lote sale de
+   * correr la receta. Si la pantalla solo dejara correr lo validado, una
+   * planta nueva no podría dar el primer paso nunca. Lo que sí hace el
+   * software es no dejar que esa diferencia pase desapercibida.
+   */
+  const corribles = [...(orden?.recetas ?? []), ...(orden?.enPrueba ?? [])];
+
   useEffect(() => {
-    if (!recetaId && orden?.recetas[0]) setRecetaId(orden.recetas[0].id);
+    if (!recetaId && corribles[0]) setRecetaId(corribles[0].id);
   }, [orden, recetaId]);
 
   if (cargando) return <main className="lienzo"><Cargando que="la orden del día" /></main>;
   if (error) return <main className="lienzo"><Fallo error={error} /></main>;
 
-  const receta = orden?.recetas.find((r) => r.id === recetaId) ?? null;
+  const receta = corribles.find((r) => r.id === recetaId) ?? null;
+  const sinRespaldo = receta !== null && receta.status !== "validated";
   const porMezcla = receta?.expectedBlocksPerMix ?? 0;
   const esperados = porMezcla * mezclas;
   const contados = buenos + rotos;
@@ -55,13 +66,14 @@ export default function Planta() {
     }
   }
 
-  if (!orden || orden.recetas.length === 0) {
+  if (!orden || corribles.length === 0) {
     return (
       <main className="lienzo planta">
         <div className="aviso ambar">
           <span>
-            No hay ninguna receta validada todavía. Una receta se valida cuando un lote suyo pasa
-            el ensayo de resistencia: hasta entonces no se puede mandar a producir con ella.
+            Todavía no hay ninguna receta cargada. Antes de producir hay que armar al menos una
+            —qué materiales lleva la mezcla y cuántos bloques salen de ella— desde la pantalla
+            de Recetas.
           </span>
         </div>
       </main>
@@ -78,18 +90,42 @@ export default function Planta() {
           value={recetaId}
           onChange={(e) => setRecetaId(e.target.value)}
           style={{ fontFamily: "var(--texto)", fontSize: 18 }}
+          aria-label="Qué se corre hoy"
         >
-          {orden.recetas.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name} — {r.tipoBloque ?? r.tipoCodigo}
-            </option>
-          ))}
+          {orden.recetas.length > 0 ? (
+            <optgroup label="Validadas por un ensayo">
+              {orden.recetas.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} — {r.tipoBloque ?? r.tipoCodigo}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+          {orden.enPrueba.length > 0 ? (
+            <optgroup label="En prueba · todavía sin ensayo">
+              {orden.enPrueba.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} — {r.tipoBloque ?? r.tipoCodigo}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
         </select>
         <span style={{ fontSize: 15, color: "var(--apagado)" }}>
           {porMezcla} bloques por mezcla · se esperan <strong>{esperados}</strong> con {mezclas}{" "}
           {mezclas === 1 ? "mezcla" : "mezclas"}
         </span>
       </div>
+
+      {sinRespaldo ? (
+        <div className="aviso ambar">
+          <span>
+            Esta receta todavía no pasó un ensayo. Se puede correr —así es como se hacen las
+            probetas—, pero lo que salga no se debería vender como bloque de resistencia garantizada
+            hasta que el ensayo lo confirme.
+          </span>
+        </div>
+      ) : null}
 
       <Contador etiqueta="Mezclas corridas" valor={mezclas} min={1} set={setMezclas} />
 
@@ -104,7 +140,9 @@ export default function Planta() {
         </div>
       </div>
 
-      <Contador etiqueta="Bloques rotos" valor={rotos} set={setRotos} paso={5} color="var(--falla)" />
+      {/* El rojo es para lo que salió mal. Cero rotos salió bien: se pinta neutro. */}
+      <Contador etiqueta="Bloques rotos" valor={rotos} set={setRotos} paso={5}
+        color={rotos > 0 ? "var(--falla)" : undefined} />
 
       {contados > esperados ? (
         <div className="aviso ambar">

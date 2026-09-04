@@ -22,15 +22,17 @@ const unidadSchema = z.object({
   factorMilli: z.number().int().positive(),
 });
 
+/** Ver la nota de TOPES en bloques-produccion.ts: son enteros de 32 bits. */
 const materialSchema = z.object({
-  code: z.string().min(1),
-  name: z.string().min(1),
-  category: z.string().optional(),
-  purchaseUnit: z.string().min(1),
-  purchasePriceCents: z.number().int().nonnegative().default(0),
+  code: z.string().min(1).max(60),
+  name: z.string().min(1).max(120),
+  category: z.string().max(60).optional(),
+  purchaseUnit: z.string().min(1).max(40),
+  /** $1,000,000 la unidad de compra. */
+  purchasePriceCents: z.number().int().nonnegative().max(100_000_000).default(0),
   dosingUnitId: z.string().uuid().optional(),
-  contentPerPurchaseMilli: z.number().int().positive().default(1000),
-  bulkDensityKgM3: z.number().int().positive().optional(),
+  contentPerPurchaseMilli: z.number().int().positive().max(1_000_000_000).default(1000),
+  bulkDensityKgM3: z.number().int().positive().max(100_000).optional(),
 });
 
 const huecoSchema = z.object({

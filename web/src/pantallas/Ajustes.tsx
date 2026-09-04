@@ -65,7 +65,95 @@ export default function Ajustes() {
           estas cifras predice la resistencia: eso lo dice el ensayo.
         </span>
       </div>
+
+      <ArrancarDeCero />
     </main>
+  );
+}
+
+/**
+ * El sistema se entrega con un lote de ejemplo para que se pueda ver
+ * funcionando antes de que exista producción real. Ese lote no puede
+ * quedarse: el primer lote de verdad tiene que ser el número 1, y el
+ * historial de la planta no puede empezar con una corrida que nunca ocurrió.
+ */
+function ArrancarDeCero() {
+  const [abierto, setAbierto] = useState(false);
+  const [palabra, setPalabra] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [falla, setFalla] = useState<string | null>(null);
+  const [hecho, setHecho] = useState<{ lotes: number; ensayos: number; recetasDevueltasABorrador: number } | null>(null);
+
+  async function borrar() {
+    setOcupado(true); setFalla(null);
+    try {
+      const r = await api.post<{ lotes: number; ensayos: number; recetasDevueltasABorrador: number }>(
+        "/bloques/reiniciar-produccion",
+        { confirmacion: palabra },
+      );
+      setHecho(r);
+      setPalabra("");
+      setAbierto(false);
+    } catch (e) {
+      setFalla(e instanceof Error ? e.message : String(e));
+    } finally { setOcupado(false); }
+  }
+
+  return (
+    <div className="tarjeta pila" style={{ gap: 14, padding: "22px 24px 24px", borderLeft: "3px solid var(--falla)" }}>
+      <div className="pila" style={{ gap: 5 }}>
+        <span className="lbl">Arrancar de cero</span>
+        <span style={{ fontSize: 14, lineHeight: 1.5, color: "var(--apagado)", maxWidth: "70ch" }}>
+          Borra <strong>todo el historial de producción</strong>: los lotes, lo que consumió cada uno,
+          los ensayos y los registros de mantenimiento. La numeración de lotes vuelve a empezar en 1.
+          No toca el catálogo, ni los precios, ni las recetas, ni los puestos, ni estos ajustes.
+        </span>
+        <span style={{ fontSize: 13.5, lineHeight: 1.45, color: "var(--tenue)", maxWidth: "70ch" }}>
+          Las recetas vuelven a «borrador»: una receta está validada porque un ensayo la respalda, y
+          si el ensayo se borra el respaldo deja de existir. Esto no se puede deshacer.
+        </span>
+      </div>
+
+      {hecho ? (
+        <div className="aviso neutro">
+          <IconoInfo color="var(--apagado)" />
+          <span>
+            Listo. Se borraron {hecho.lotes} {hecho.lotes === 1 ? "lote" : "lotes"} y{" "}
+            {hecho.ensayos} {hecho.ensayos === 1 ? "ensayo" : "ensayos"}
+            {hecho.recetasDevueltasABorrador > 0
+              ? `, y ${hecho.recetasDevueltasABorrador} ${hecho.recetasDevueltasABorrador === 1 ? "receta volvió" : "recetas volvieron"} a borrador`
+              : ""}
+            . El próximo lote será el número 1.
+          </span>
+        </div>
+      ) : null}
+
+      {!abierto ? (
+        <button className="boton hueco" style={{ alignSelf: "flex-start", minHeight: 44, color: "var(--falla)", borderColor: "var(--falla)" }}
+          onClick={() => { setAbierto(true); setHecho(null); }}>
+          Borrar el historial de producción
+        </button>
+      ) : (
+        <div className="pila" style={{ gap: 12 }}>
+          <span style={{ fontSize: 14, lineHeight: 1.5 }}>
+            Para confirmar, escriba <strong className="mono">BORRAR</strong> acá abajo.
+          </span>
+          <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+            <input className="entrada" style={{ width: 180, minHeight: 44 }} value={palabra}
+              onChange={(e) => setPalabra(e.target.value)} aria-label="Confirmación" placeholder="BORRAR" />
+            <button className="boton" style={{ minHeight: 44, background: "var(--falla)", color: "#fff" }}
+              onClick={borrar} disabled={ocupado || palabra !== "BORRAR"}>
+              {ocupado ? "Borrando…" : "Borrar de verdad"}
+            </button>
+            <button className="boton hueco" style={{ minHeight: 44 }}
+              onClick={() => { setAbierto(false); setPalabra(""); setFalla(null); }}>
+              Cancelar
+            </button>
+          </div>
+          {falla ? <span style={{ fontSize: 13, color: "var(--falla)" }}>{falla}</span> : null}
+        </div>
+      )}
+    </div>
   );
 }
 

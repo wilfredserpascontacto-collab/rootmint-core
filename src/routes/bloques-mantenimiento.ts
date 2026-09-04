@@ -17,19 +17,20 @@ import { getUserId } from "../lib/request-context.js";
 import { contadores, tareasConEstado } from "../bloques/mantenimiento.js";
 
 const puestoSchema = z.object({
-  code: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().optional(),
+  code: z.string().min(1).max(60),
+  name: z.string().min(1).max(120),
+  description: z.string().max(500).optional(),
 });
 
+/** Los topes: ver la nota en bloques-produccion.ts. */
 const tareaSchema = z
   .object({
-    code: z.string().min(1),
-    name: z.string().min(1),
-    description: z.string().optional(),
+    code: z.string().min(1).max(60),
+    name: z.string().min(1).max(120),
+    description: z.string().max(500).optional(),
     roleId: z.string().uuid().nullable().optional(),
-    everyMixes: z.number().int().positive().nullable().optional(),
-    everyBatches: z.number().int().positive().nullable().optional(),
+    everyMixes: z.number().int().positive().max(1_000_000).nullable().optional(),
+    everyBatches: z.number().int().positive().max(1_000_000).nullable().optional(),
   })
   .refine((t) => !!t.everyMixes !== !!t.everyBatches, {
     message: "Una tarea se mide por mezclas O por lotes, no por las dos ni por ninguna",

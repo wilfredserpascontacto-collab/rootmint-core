@@ -13,7 +13,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { and, eq, isNull, desc } from "drizzle-orm";
+import { and, eq, ne, isNull, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
@@ -25,26 +25,47 @@ import {
   materials,
   units,
   blockTypes,
+  maintenanceLogs,
 } from "../db/schema-bloques.js";
+import { counters } from "../db/schema.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { recetaConCosto, fichaDelLote, lotesRecientes, leerResolver } from "../bloques/servicio.js";
 import { vencidasAhora } from "../bloques/mantenimiento.js";
 
+/**
+ * Los topes.
+ *
+ * No están para desconfiar del usuario: están porque las columnas son enteros
+ * de 32 bits y un cero de más al teclear reventaba la consulta con un error
+ * de base de datos, que en pantalla se leía como «Error interno». Con el tope
+ * puesto acá, lo que se ve es qué campo se pasó de la raya.
+ */
+const TOPES = {
+  cantidad: 100_000_000, //   100 mil unidades de dosificación por mezcla
+  bloques: 1_000_000, //      un millón de bloques en un lote
+  mezclas: 10_000, //         diez mil mezclas en un lote
+  porMezcla: 100_000, //      bloques que salen de una mezcla
+  mpaMilli: 200_000, //       200 MPa: el triple del hormigón más fuerte que existe
+  dias: 3_650, //             diez años de curado
+  probetas: 1_000,
+} as const;
+
 const renglonSchema = z.object({
   materialId: z.string().uuid(),
-  quantityMilli: z.number().int().positive(),
+  quantityMilli: z.number().int().positive().max(TOPES.cantidad),
+  /** Se ignora: la unidad la manda el material. Se acepta por compatibilidad. */
   unitId: z.string().uuid().optional(),
 });
 
 const recetaSchema = z.object({
-  code: z.string().min(1),
-  name: z.string().min(1),
+  code: z.string().min(1).max(60),
+  name: z.string().min(1).max(120),
   blockTypeId: z.string().uuid(),
-  expectedBlocksPerMix: z.number().int().positive(),
-  notes: z.string().optional(),
-  renglones: z.array(renglonSchema).min(1),
+  expectedBlocksPerMix: z.number().int().positive().max(TOPES.porMezcla),
+  notes: z.string().max(2000).optional(),
+  renglones: z.array(renglonSchema).min(1).max(40),
 });
 
 export async function bloquesProduccionRoutes(app: FastifyInstance) {
@@ -77,6 +98,32 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
 
   app.post("/bloques/recetas", async (req, reply) => {
     const body = recetaSchema.parse(req.body);
+
+    /**
+     * La unidad de un renglón NO la elige quien arma la receta: es la unidad
+     * de dosificación del material y punto.
+     *
+     * Las cantidades del sistema viajan en milésimas de esa unidad, y el costo
+     * las divide contra `contentPerPurchaseMilli`, que está expresado en esa
+     * misma unidad. Si un renglón dijera "2 baldes" de un material que se
+     * dosifica en carretillas, el número se leería igual —como carretillas— y
+     * el costo saldría mal sin una sola señal. Se resuelve acá, del lado del
+     * servidor, para que la regla valga aunque la petición venga de otro lado.
+     */
+    const usados = await db
+      .select({ id: materials.id, dosingUnitId: materials.dosingUnitId, nombre: materials.name })
+      .from(materials)
+      .where(and(inArray(materials.id, body.renglones.map((l) => l.materialId)), isNull(materials.deletedAt)));
+
+    const porId = new Map(usados.map((m) => [m.id, m]));
+    const desconocidos = body.renglones.filter((l) => !porId.has(l.materialId));
+    if (desconocidos.length > 0) {
+      return reply.code(400).send({
+        error: "Hay materiales que no existen en el catálogo",
+        detalle: desconocidos.map((l) => l.materialId),
+      });
+    }
+
     const creada = await db.transaction(async (tx) => {
       const [r] = await tx
         .insert(recipes)
@@ -97,7 +144,7 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
           recipeId: r.id,
           materialId: l.materialId,
           quantityMilli: l.quantityMilli,
-          unitId: l.unitId,
+          unitId: porId.get(l.materialId)?.dosingUnitId ?? null,
           displayOrder: i,
         })),
       );
@@ -170,10 +217,10 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
   const loteSchema = z.object({
     recipeId: z.string().uuid(),
     producedAt: z.coerce.date().optional(),
-    mixes: z.number().int().positive().default(1),
-    blocksGood: z.number().int().nonnegative().default(0),
-    blocksBroken: z.number().int().nonnegative().default(0),
-    notes: z.string().optional(),
+    mixes: z.number().int().positive().max(TOPES.mezclas).default(1),
+    blocksGood: z.number().int().nonnegative().max(TOPES.bloques).default(0),
+    blocksBroken: z.number().int().nonnegative().max(TOPES.bloques).default(0),
+    notes: z.string().max(2000).optional(),
   });
 
   /**
@@ -311,9 +358,9 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
 
   const ensayoSchema = z.object({
     testedAt: z.coerce.date().optional(),
-    ageDays: z.number().int().positive(),
-    specimens: z.number().int().positive().default(1),
-    strengthMpaMilli: z.number().int().positive(),
+    ageDays: z.number().int().positive().max(TOPES.dias),
+    specimens: z.number().int().positive().max(TOPES.probetas).default(1),
+    strengthMpaMilli: z.number().int().positive().max(TOPES.mpaMilli),
     /** Sin criterio de área un MPa no significa nada. Por eso no tiene default. */
     basis: z.enum(["net", "gross"]),
     source: z.enum(["plant", "lab"]).default("plant"),
@@ -378,9 +425,19 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
    * Lo que la pantalla de planta necesita al abrir: qué recetas se pueden
    * correr y cuántos bloques espera cada una. En la fase 1 el software es la
    * orden de trabajo, así que esto es lo primero que ve el operario.
+   *
+   * Devuelve las validadas Y las que están en prueba, separadas.
+   *
+   * Antes solo devolvía las validadas, y eso dejaba una planta nueva sin
+   * salida: una receta se valida cuando un lote suyo pasa el ensayo, el lote
+   * sale de correr la receta, y la pantalla no dejaba correr nada sin validar.
+   * El nudo se cerraba sobre sí mismo. En una planta de verdad primero se
+   * corren mezclas de prueba, se hacen las probetas y a los 28 días el ensayo
+   * dice si la receta sirve. El software tiene que dejar hacer eso; lo que no
+   * puede es callar que el bloque todavía no está respaldado.
    */
   app.get("/bloques/orden-del-dia", async () => {
-    const recetasDisponibles = await db
+    const todas = await db
       .select({
         id: recipes.id,
         code: recipes.code,
@@ -392,8 +449,11 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
       })
       .from(recipes)
       .leftJoin(blockTypes, eq(recipes.blockTypeId, blockTypes.id))
-      .where(and(isNull(recipes.deletedAt), eq(recipes.status, "validated")))
+      .where(and(isNull(recipes.deletedAt), ne(recipes.status, "retired")))
       .orderBy(recipes.name);
+
+    const recetasDisponibles = todas.filter((r) => r.status === "validated");
+    const enPrueba = todas.filter((r) => r.status !== "validated");
 
     const enCurso = await db
       .select()
@@ -402,6 +462,76 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
       .orderBy(desc(batches.producedAt))
       .limit(1);
 
-    return { recetas: recetasDisponibles, ultimoLote: enCurso[0] ?? null };
+    return { recetas: recetasDisponibles, enPrueba, ultimoLote: enCurso[0] ?? null };
+  });
+
+  // --- Arrancar de cero ----------------------------------------------------
+
+  /**
+   * Borra TODO el historial de producción: lotes, sus consumos congelados,
+   * ensayos y registros de mantenimiento. Deja el catálogo, las recetas, los
+   * precios, los puestos y los ajustes como están.
+   *
+   * Existe porque el sistema se entrega con un lote de ejemplo para que se
+   * pueda ver funcionando, y ese lote no puede quedarse: el primer lote real
+   * de la planta tiene que ser el número 1, no el 4, y su historial no puede
+   * arrancar con una corrida que nunca ocurrió.
+   *
+   * Las recetas vuelven a «borrador». Una receta está validada porque un
+   * ensayo la respalda; borrado el ensayo, el respaldo ya no existe y dejarla
+   * validada sería exactamente la mentira que este módulo se niega a decir.
+   *
+   * No se puede deshacer, así que exige que se escriba la palabra.
+   */
+  app.post("/bloques/reiniciar-produccion", async (req, reply) => {
+    const body = z.object({ confirmacion: z.string() }).parse(req.body);
+    if (body.confirmacion !== "BORRAR") {
+      return reply.code(400).send({
+        error: "Falta la confirmación",
+        detalle: "Para borrar el historial hay que escribir la palabra BORRAR.",
+      });
+    }
+
+    const resumen = await db.transaction(async (tx) => {
+      const lotes = await tx.select({ id: batches.id }).from(batches);
+      const ensayos = await tx.select({ id: tests.id }).from(tests);
+
+      // El orden importa: primero lo que apunta a los lotes.
+      await tx.delete(tests);
+      await tx.delete(batchLines);
+      await tx.delete(maintenanceLogs);
+      await tx.delete(batches);
+
+      // Sin ensayos no hay receta respaldada.
+      const devueltas = await tx
+        .update(recipes)
+        .set({ status: "draft", updatedAt: new Date() })
+        .where(eq(recipes.status, "validated"))
+        .returning({ id: recipes.id });
+
+      // El correlativo también, o el primer lote real saldría con el número 5.
+      await tx.update(counters).set({ value: 0 }).where(eq(counters.id, "batch"));
+
+      await logActivity(tx, {
+        userId: getUserId(req),
+        entity: "batches",
+        // No es una fila: es el historial entero.
+        entityId: "reinicio-produccion",
+        action: "delete",
+        oldValues: {
+          lotesBorrados: lotes.length,
+          ensayosBorrados: ensayos.length,
+          recetasDevueltasABorrador: devueltas.length,
+        },
+      });
+
+      return {
+        lotes: lotes.length,
+        ensayos: ensayos.length,
+        recetasDevueltasABorrador: devueltas.length,
+      };
+    });
+
+    return resumen;
   });
 }
