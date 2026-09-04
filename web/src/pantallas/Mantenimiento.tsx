@@ -200,7 +200,7 @@ function Tarjeta({
             </>
           ) : confirmandoQuitar ? (
             <>
-              <button className="boton" style={{ padding: "10px 14px", minHeight: 44, background: "var(--falla)", color: "#fff" }}
+              <button className="boton" style={{ padding: "10px 14px", minHeight: 44, background: "var(--falla)", borderColor: "var(--falla)", color: "#000" }}
                 onClick={quitar} disabled={ocupado}>
                 {ocupado ? "…" : t.esDeFabrica ? "Sí, desactivarla" : "Sí, quitarla"}
               </button>

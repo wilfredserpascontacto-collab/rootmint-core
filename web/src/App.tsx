@@ -7,6 +7,7 @@ import Receta from "./pantallas/Receta";
 import Mantenimiento from "./pantallas/Mantenimiento";
 import Ajustes from "./pantallas/Ajustes";
 import Catalogo from "./pantallas/Catalogo";
+import Telemetria from "./comp/Telemetria";
 
 export default function App() {
   return (
@@ -40,6 +41,8 @@ export default function App() {
         <Route path="/ajustes" element={<Ajustes />} />
         <Route path="*" element={<div className="vacio">Esa pantalla no existe.</div>} />
       </Routes>
+
+      <Telemetria />
     </div>
   );
 }

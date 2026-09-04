@@ -1,34 +1,61 @@
 /*
- * Sistema visual de BloquesTitán: instrumento de medición industrial.
+ * Sistema visual de BloquesTitán.
  *
- * Concreto y grafito, un amarillo de maquinaria, tipografía condensada y
- * numerales tabulares. Nada decorativo: las cifras mandan.
+ * Negro sólido, naranja encendido, monoespaciada. La lógica del color no es
+ * decorativa: cada uno significa algo y significa siempre lo mismo.
+ *
+ *   naranja  — la estructura y las cifras: es la voz normal del sistema
+ *   blanco   — el texto que se lee de corrido, explicaciones y descripciones
+ *   azul     — lo que salió bien: CUMPLE, validada, al día
+ *   amarillo — atención: algo se acerca o está fuera del rango del cliente
+ *   rojo     — falla: no cumple, vencida, sin precio, se rompió
+ *
+ * Un color que se usa por gusto en un lugar deja de querer decir algo en
+ * todos los demás.
  */
 
 :root {
-  --suelo: #e7e9e5;
-  --superficie: #ffffff;
-  --grafito: #1a1f23;
-  --tinta: #12161a;
-  --apagado: #616a6e;
-  --tenue: #8a9296;
-  --linea: #cdd2cd;
-  --linea-suave: #e4e6e4;
-  --ambar: #e0a400;
-  --ambar-fondo: #fbf3dc;
-  --ambar-tinta: #8a6400;
+  color-scheme: dark;
 
-  --cumple: #2c6a4e;
-  --cumple-fondo: #dceae0;
-  --falla: #a03028;
-  --falla-fondo: #f7e4e2;
+  /* El vacío. */
+  --suelo: #000000;
+  --superficie: #080a0c;
+  --superficie-alta: #0d1114;
+  --grafito: #000000;
+
+  /* El naranja manda: texto fuerte, cifras, bordes, botones. */
+  --tinta: #ff8c1a;
+  --tinta-viva: #ffa845;
+  --blanco: #e9eef2;
+
+  --apagado: #9aa4ab;
+  --tenue: #b4650f;
+
+  --linea: #4a2c0a;
+  --linea-suave: #291805;
+
+  /* Atención. */
+  --ambar: #ffc31a;
+  --ambar-fondo: #1c1503;
+  --ambar-tinta: #ffc31a;
+
+  /* Logro. */
+  --cumple: #35c9ff;
+  --cumple-fondo: #04161f;
+
+  /* Falla. */
+  --falla: #ff3b30;
+  --falla-fondo: #1d0605;
+
   /* Gris a propósito: "no se sabe" no debe leerse como aprobado. */
-  --incierto: #6e7679;
-  --incierto-fondo: #e4e6e4;
+  --incierto: #78838a;
+  --incierto-fondo: #111517;
 
   --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
   --texto: "Barlow", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --brillo: 0 0 12px rgba(255, 140, 26, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -38,14 +65,14 @@ html, body, #raiz { height: 100%; }
 body {
   margin: 0;
   background: var(--suelo);
-  color: var(--tinta);
+  color: var(--blanco);
   font-family: var(--texto);
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
 }
 
-a { color: var(--ambar-tinta); }
-a:hover { color: #6b4e00; }
+a { color: var(--tinta); }
+a:hover { color: var(--tinta-viva); }
 
 button, input, select { font: inherit; color: inherit; }
 
@@ -58,7 +85,7 @@ button, input, select { font: inherit; color: inherit; }
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--tenue);
+  color: var(--tinta);
 }
 
 /* --- Estructura ---------------------------------------------------------- */
@@ -73,17 +100,21 @@ button, input, select { font: inherit; color: inherit; }
   padding: 0 clamp(16px, 3vw, 48px);
   height: 68px;
   background: var(--grafito);
-  color: var(--suelo);
+  border-bottom: 1px solid var(--tinta);
+  color: var(--blanco);
   flex: 0 0 auto;
+  position: relative;
+  z-index: 3;
 }
 
 .marca {
   font-family: var(--cond);
   font-size: 22px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-decoration: none;
-  color: var(--suelo);
+  color: var(--tinta);
+  text-shadow: var(--brillo);
 }
 
 .nav { display: flex; align-items: center; gap: clamp(14px, 2vw, 28px); }
@@ -94,14 +125,14 @@ button, input, select { font: inherit; color: inherit; }
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--tenue);
+  color: var(--apagado);
   text-decoration: none;
   padding-bottom: 2px;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
 }
-.nav a:hover { color: var(--suelo); }
-.nav a.activo { color: var(--suelo); border-bottom-color: var(--ambar); }
+.nav a:hover { color: var(--tinta); }
+.nav a.activo { color: var(--tinta); border-bottom-color: var(--tinta); text-shadow: var(--brillo); }
 
 .lienzo {
   flex: 1 1 auto;
@@ -111,15 +142,25 @@ button, input, select { font: inherit; color: inherit; }
   padding: clamp(20px, 3vw, 36px) clamp(16px, 3vw, 48px) 48px;
   width: 100%;
   max-width: 1560px;
-  margin: 0 inline;
+  margin: 0 auto;
+  position: relative;
+  z-index: 2;
 }
 
-.titulo { font-family: var(--cond); font-size: clamp(30px, 4vw, 44px); font-weight: 700; line-height: 1; margin: 0; }
+.titulo {
+  font-family: var(--cond);
+  font-size: clamp(30px, 4vw, 44px);
+  font-weight: 700;
+  line-height: 1;
+  margin: 0;
+  color: var(--tinta);
+  text-shadow: var(--brillo);
+}
 
 /* --- Piezas -------------------------------------------------------------- */
 
 .tarjeta { background: var(--superficie); border: 1px solid var(--linea); }
-.tarjeta.fuerte { border: 2px solid var(--tinta); }
+.tarjeta.fuerte { border: 1px solid var(--tinta); box-shadow: 0 0 24px rgba(255, 140, 26, 0.12); }
 
 .rejilla { display: grid; gap: 28px; align-items: start; }
 .rejilla.dos-uno { grid-template-columns: 2fr 1fr; }
@@ -128,21 +169,22 @@ button, input, select { font: inherit; color: inherit; }
 .pila { display: flex; flex-direction: column; }
 .fila { display: flex; align-items: center; }
 
+/* Insignias de neón: fondo oscuro, borde y letra del color que significan. */
 .insignia {
   font-family: var(--cond);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 4px 10px;
-  color: #fff;
+  padding: 3px 10px;
+  border: 1px solid currentColor;
   white-space: nowrap;
 }
-.insignia.cumple { background: var(--cumple); }
-.insignia.falla { background: var(--falla); }
-.insignia.incierto { background: var(--incierto); }
-.insignia.aviso { background: var(--ambar); color: var(--tinta); }
-.insignia.hueca { background: transparent; color: var(--apagado); border: 1px solid var(--linea); }
+.insignia.cumple { color: var(--cumple); background: var(--cumple-fondo); }
+.insignia.falla { color: var(--falla); background: var(--falla-fondo); }
+.insignia.incierto { color: var(--incierto); background: var(--incierto-fondo); }
+.insignia.aviso { color: var(--ambar); background: var(--ambar-fondo); }
+.insignia.hueca { color: var(--apagado); background: transparent; }
 
 .cifra {
   font-family: var(--cond);
@@ -150,6 +192,8 @@ button, input, select { font: inherit; color: inherit; }
   font-weight: 500;
   line-height: 0.95;
   letter-spacing: -0.02em;
+  color: var(--tinta);
+  text-shadow: var(--brillo);
 }
 .cifra.enorme { font-size: clamp(52px, 7vw, 76px); }
 .cifra.grande { font-size: clamp(32px, 4vw, 40px); }
@@ -163,8 +207,8 @@ button, input, select { font: inherit; color: inherit; }
   text-transform: uppercase;
   padding: 11px 18px;
   background: var(--tinta);
-  color: #fff;
-  border: none;
+  color: #000;
+  border: 1px solid var(--tinta);
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
@@ -172,22 +216,26 @@ button, input, select { font: inherit; color: inherit; }
   justify-content: center;
   min-height: 44px;
 }
-.boton:hover { background: #000; }
+.boton:hover { background: var(--tinta-viva); border-color: var(--tinta-viva); box-shadow: var(--brillo); }
 .boton.hueco { background: transparent; color: var(--tinta); border: 1px solid var(--tinta); }
-.boton.hueco:hover { background: var(--linea-suave); }
-.boton:disabled { opacity: 0.4; cursor: not-allowed; }
+.boton.hueco:hover { background: rgba(255, 140, 26, 0.12); box-shadow: none; }
+.boton:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+.boton:disabled:hover { background: var(--tinta); border-color: var(--tinta); }
+.boton.hueco:disabled:hover { background: transparent; }
 
 .entrada {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 16px;
   padding: 9px 12px;
-  border: 1px solid #a9b0aa;
-  background: #fff;
+  border: 1px solid var(--linea);
+  background: var(--superficie-alta);
+  color: var(--blanco);
   min-height: 44px;
 }
-.entrada.tocada { border: 2px solid var(--ambar); padding: 8px 11px; }
-.entrada:focus { outline: 2px solid var(--tinta); outline-offset: 1px; }
+.entrada.tocada { border: 1px solid var(--ambar); }
+.entrada:focus { outline: 1px solid var(--tinta); outline-offset: 1px; box-shadow: var(--brillo); }
+.entrada::placeholder { color: #5d666c; }
 
 /* --- Tablas -------------------------------------------------------------- */
 
@@ -201,37 +249,37 @@ button, input, select { font: inherit; color: inherit; }
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--tenue);
+  color: var(--tinta);
   white-space: nowrap;
 }
 .tabla td { padding: 14px 16px; border-bottom: 1px solid var(--linea-suave); }
 .tabla tr:last-child td { border-bottom: none; }
 .tabla .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.tabla tfoot td { font-weight: 600; border-top: 1px solid var(--linea); border-bottom: none; }
+.tabla tfoot td { color: var(--tinta); font-weight: 600; border-top: 1px solid var(--linea); border-bottom: none; }
 .envoltura-tabla { overflow-x: auto; }
 
 /* --- Avisos -------------------------------------------------------------- */
 
 .aviso { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; line-height: 1.5; }
-.aviso.ambar { background: var(--ambar-fondo); border-left: 3px solid var(--ambar); }
-.aviso.rojo { background: var(--falla-fondo); border-left: 3px solid var(--falla); }
-.aviso.neutro { background: #edefea; border-left: 3px solid var(--linea); color: var(--apagado); }
+.aviso.ambar { background: var(--ambar-fondo); border-left: 2px solid var(--ambar); color: var(--blanco); }
+.aviso.rojo { background: var(--falla-fondo); border-left: 2px solid var(--falla); color: var(--blanco); }
+.aviso.neutro { background: var(--incierto-fondo); border-left: 2px solid var(--linea); color: var(--apagado); }
 .aviso svg { flex: 0 0 auto; margin-top: 1px; }
 
 /* --- Banda de rango ------------------------------------------------------ */
 
-/* El riel es el eje completo; la banda clara es el rango vigente. Tienen que
+/* El riel es el eje completo; la banda es el rango vigente. Tienen que
    distinguirse a un metro de la pantalla, no solo de cerca. */
-.banda { position: relative; height: 26px; background: #d6d9d4; }
+.banda { position: relative; height: 26px; background: #141a1d; border: 1px solid var(--linea-suave); }
 .banda .rango {
   position: absolute; top: 0; bottom: 0;
-  background: #ffffff;
-  border-left: 2px solid var(--apagado);
-  border-right: 2px solid var(--apagado);
+  background: rgba(255, 140, 26, 0.16);
+  border-left: 2px solid var(--tinta);
+  border-right: 2px solid var(--tinta);
 }
-.banda .marca { position: absolute; top: -4px; bottom: -4px; width: 3px; }
+.banda .marca { position: absolute; top: -4px; bottom: -4px; width: 3px; box-shadow: 0 0 8px currentColor; }
 .norma-linea { position: relative; height: 7px; }
-.norma-linea span { position: absolute; top: 0; height: 4px; background: var(--tinta); }
+.norma-linea span { position: absolute; top: 0; height: 4px; background: var(--blanco); }
 
 /* --- Pantalla de planta -------------------------------------------------- */
 
@@ -243,27 +291,92 @@ button, input, select { font: inherit; color: inherit; }
   display: flex; align-items: center; justify-content: center;
   font-family: var(--cond); font-size: 34px; font-weight: 600; line-height: 1;
   font-variant-numeric: tabular-nums;
-  border: 2px solid var(--tinta);
-  background: var(--suelo); color: var(--tinta);
+  border: 1px solid var(--tinta);
+  background: transparent; color: var(--tinta);
   cursor: pointer;
   touch-action: manipulation;
 }
-.contador .paso.mas { background: var(--tinta); color: #fff; }
+.contador .paso.mas { background: var(--tinta); color: #000; }
 .contador .paso:active { transform: translateY(1px); }
-.contador .valor { font-family: var(--cond); font-variant-numeric: tabular-nums; font-size: 68px; font-weight: 500; line-height: 1; }
+.contador .valor {
+  font-family: var(--cond); font-variant-numeric: tabular-nums;
+  font-size: 68px; font-weight: 500; line-height: 1;
+  color: var(--tinta); text-shadow: var(--brillo);
+}
 
-.progreso { display: flex; height: 10px; background: var(--linea-suave); }
-.progreso span { background: var(--tinta); }
+.progreso { display: flex; height: 10px; background: #16191b; border: 1px solid var(--linea-suave); }
+.progreso span { background: var(--tinta); box-shadow: var(--brillo); }
 
 /* --- Estados ------------------------------------------------------------- */
 
-.cargando, .vacio { padding: 48px 16px; text-align: center; color: var(--apagado); }
+.cargando, .vacio { padding: 48px 16px; text-align: center; color: var(--tinta); font-family: var(--mono); }
 
 .error {
   background: var(--falla-fondo);
-  border-left: 3px solid var(--falla);
+  border-left: 2px solid var(--falla);
+  color: var(--blanco);
   padding: 14px 18px;
   line-height: 1.5;
+}
+
+/* --- Telemetría: el código que sube al pie ------------------------------- */
+
+/*
+ * Es decoración y nada más: las líneas no significan nada y no salen de la
+ * base de datos. Está acá porque el software se ve vivo, y esa impresión
+ * vale en una demostración. Pero por eso mismo no se le pone ni una cifra
+ * que se pueda confundir con un dato real: ni costos, ni resistencias, ni
+ * números de lote. Solo ruido de máquina.
+ */
+.telemetria {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 108px;
+  background: linear-gradient(to top, #000 62%, rgba(0, 0, 0, 0.86) 100%);
+  border-top: 1px solid var(--linea);
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+
+.telemetria .canal { position: relative; overflow: hidden; border-right: 1px solid var(--linea-suave); }
+.telemetria .canal:last-child { border-right: none; }
+
+.telemetria .cinta {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  padding: 0 14px;
+  animation: subir linear infinite;
+  will-change: transform;
+}
+
+.telemetria .linea {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 140, 26, 0.34);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.telemetria .linea.viva { color: rgba(255, 168, 69, 0.92); text-shadow: 0 0 8px rgba(255, 140, 26, 0.5); }
+
+@keyframes subir {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+
+/* Deja aire al final del contenido para que la cinta no tape la última fila. */
+.lienzo { padding-bottom: 148px; }
+
+/* Quien pide menos movimiento no recibe una pantalla animada en la cara. */
+@media (prefers-reduced-motion: reduce) {
+  .telemetria .cinta { animation: none; }
 }
 
 /* --- Angosto ------------------------------------------------------------- */
@@ -271,9 +384,12 @@ button, input, select { font: inherit; color: inherit; }
 @media (max-width: 900px) {
   .rejilla.dos-uno, .rejilla.uno-uno { grid-template-columns: 1fr; }
   .lienzo { gap: 20px; }
+  .telemetria { grid-template-columns: repeat(2, 1fr); height: 84px; }
 }
 
 @media (max-width: 560px) {
   .barra { height: auto; padding: 12px 16px; flex-direction: column; align-items: flex-start; gap: 10px; }
   .nav { flex-wrap: wrap; gap: 14px; }
+  .telemetria { height: 66px; }
+  .lienzo { padding-bottom: 104px; }
 }

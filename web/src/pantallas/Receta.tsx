@@ -129,7 +129,7 @@ export default function Receta() {
         <div className="fila" style={{ justifyContent: "space-between", gap: 16, alignItems: "baseline", flexWrap: "wrap" }}>
           <span className="lbl">Advertencias · la mezcla contra los rangos</span>
           <span style={{ fontSize: 13, color: "var(--tenue)" }}>
-            La barra clara es su rango. La marca oscura debajo es la norma, y no se mueve.
+            La banda naranja es su rango. La línea blanca debajo es la norma, y no se mueve.
           </span>
         </div>
 

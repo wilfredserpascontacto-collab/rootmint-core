@@ -35,7 +35,7 @@ export default function Ajustes() {
       </div>
 
       <div className="tarjeta fila" style={{ gap: 18, padding: "14px 20px", flexWrap: "wrap" }}>
-        <Leyenda color="var(--linea-suave)" borde="#a9b0aa" texto="De fábrica" />
+        <Leyenda color="var(--linea-suave)" borde="var(--linea)" texto="De fábrica" />
         <Leyenda color="var(--ambar)" texto="Puesto por usted" />
         <Leyenda color="var(--tinta)" alto={4} texto="Norma · no se edita" />
       </div>
@@ -141,7 +141,7 @@ function ArrancarDeCero() {
           <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
             <input className="entrada" style={{ width: 180, minHeight: 44 }} value={palabra}
               onChange={(e) => setPalabra(e.target.value)} aria-label="Confirmación" placeholder="BORRAR" />
-            <button className="boton" style={{ minHeight: 44, background: "var(--falla)", color: "#fff" }}
+            <button className="boton" style={{ minHeight: 44, background: "var(--falla)", borderColor: "var(--falla)", color: "#000" }}
               onClick={borrar} disabled={ocupado || palabra !== "BORRAR"}>
               {ocupado ? "Borrando…" : "Borrar de verdad"}
             </button>
@@ -217,7 +217,7 @@ function FilaRango({ a, ultimo, alCambiar }: { a: Ajuste; ultimo: boolean; alCam
         alignItems: "center",
         padding: "20px 24px",
         borderBottom: ultimo ? "none" : "1px solid var(--linea-suave)",
-        background: a.esDelCliente ? "#fefaf0" : undefined,
+        background: a.esDelCliente ? "var(--ambar-fondo)" : undefined,
       }}
     >
       <div className="pila" style={{ gap: 4 }}>
@@ -292,7 +292,7 @@ function FilaNumero({ a, ultimo, alCambiar }: { a: Ajuste; ultimo: boolean; alCa
         display: "grid", gridTemplateColumns: "minmax(220px, 1.5fr) minmax(220px, 1.1fr) minmax(200px, 1fr)",
         gap: 22, alignItems: "center", padding: "20px 24px",
         borderBottom: ultimo ? "none" : "1px solid var(--linea-suave)",
-        background: a.esDelCliente ? "#fefaf0" : undefined,
+        background: a.esDelCliente ? "var(--ambar-fondo)" : undefined,
       }}
     >
       <div className="pila" style={{ gap: 4 }}>
