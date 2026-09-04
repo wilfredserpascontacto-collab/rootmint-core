@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 /**
- * La cinta de código que sube al pie de la pantalla.
+ * El código que sube por la mitad de abajo de la pantalla.
  *
  * Es decoración declarada: las líneas se generan acá, no salen de la base de
  * datos y no significan nada. Existe porque un tablero industrial que se ve
@@ -16,6 +16,10 @@ import { useMemo } from "react";
  *
  * Lo que sube es ruido de máquina: registros, direcciones, opcodes, estados
  * de bus. Nada de eso tiene lectura posible como número de producción.
+ *
+ * La profundidad son tres planos y la regla del paralaje decide todo: lo
+ * lejano es chico, tenue y lento; lo cercano es grande, borroso y rápido.
+ * Al revés se vería plano, que es justo lo que no se quiere.
  */
 
 const VERBOS = [
@@ -50,8 +54,8 @@ function elegir<T>(dado: () => number, xs: readonly T[]): T {
 }
 
 /** Una línea de ruido. Ninguna forma de acá se parece a una cifra de planta. */
-function linea(dado: () => number): string {
-  const forma = Math.floor(dado() * 5);
+function linea(dado: () => number, corta: boolean): string {
+  const forma = Math.floor(dado() * (corta ? 3 : 5));
   switch (forma) {
     case 0:
       return `0x${hex(dado, 4)}  ${elegir(dado, VERBOS)}  ${elegir(dado, BUSES)}`;
@@ -66,20 +70,27 @@ function linea(dado: () => number): string {
   }
 }
 
-/** Un canal: sus líneas duplicadas, para que el bucle no tenga costura. */
-function Canal({ semilla, segundos }: { semilla: number; segundos: number }) {
-  const lineas = useMemo(() => {
+/**
+ * Un canal: sus líneas duplicadas, para que el bucle no tenga costura, y
+ * arrancado a una altura propia para que las columnas no suban en fila.
+ */
+function Canal({
+  semilla, segundos, filas, corta,
+}: { semilla: number; segundos: number; filas: number; corta: boolean }) {
+  const { lineas, retraso } = useMemo(() => {
     const dado = crearDado(semilla);
-    const base = Array.from({ length: 26 }, () => ({
-      texto: linea(dado),
+    const base = Array.from({ length: filas }, () => ({
+      texto: linea(dado, corta),
+      // Se mantiene lo que ya funcionaba: unas pocas líneas más encendidas
+      // que el resto, para que la cinta no se lea como un bloque parejo.
       viva: dado() < 0.14,
     }));
-    return [...base, ...base];
-  }, [semilla]);
+    return { lineas: [...base, ...base], retraso: -dado() * segundos };
+  }, [semilla, filas, corta, segundos]);
 
   return (
     <div className="canal">
-      <div className="cinta" style={{ animationDuration: `${segundos}s` }}>
+      <div className="cinta" style={{ animationDuration: `${segundos}s`, animationDelay: `${retraso}s` }}>
         {lineas.map((l, i) => (
           <div key={i} className={l.viva ? "linea viva" : "linea"}>{l.texto}</div>
         ))}
@@ -88,17 +99,41 @@ function Canal({ semilla, segundos }: { semilla: number; segundos: number }) {
   );
 }
 
-/**
- * Cuatro canales a velocidades distintas: si todos subieran al mismo ritmo se
- * vería como una sola imagen desplazándose, no como cuatro cosas ocurriendo.
- */
+interface Plano {
+  clase: "lejos" | "medio" | "cerca";
+  canales: number;
+  /** Cuántas filas necesita cada columna para llenar el alto de su plano. */
+  filas: number;
+  /** Segundos de recorrido: lejos lento, cerca rápido. Es el paralaje. */
+  lento: number;
+  rapido: number;
+  corta: boolean;
+}
+
+const PLANOS: Plano[] = [
+  { clase: "lejos", canales: 9, filas: 70, lento: 95, rapido: 62, corta: true },
+  { clase: "medio", canales: 5, filas: 48, lento: 44, rapido: 26, corta: false },
+  { clase: "cerca", canales: 3, filas: 28, lento: 19, rapido: 12, corta: true },
+];
+
 export default function Telemetria() {
   return (
     <div className="telemetria" aria-hidden="true">
-      <Canal semilla={20260904} segundos={17} />
-      <Canal semilla={81723} segundos={23} />
-      <Canal semilla={559041} segundos={13} />
-      <Canal semilla={7714} segundos={29} />
+      {PLANOS.map((p, ip) => (
+        <div key={p.clase} className={`plano ${p.clase}`}>
+          {Array.from({ length: p.canales }, (_, i) => (
+            <Canal
+              key={i}
+              semilla={9176 + ip * 7919 + i * 104729}
+              // Cada columna con su propio ritmo dentro del plano: si todas
+              // fueran iguales el plano se leería como una sola lámina.
+              segundos={p.rapido + ((p.lento - p.rapido) * i) / Math.max(1, p.canales - 1)}
+              filas={p.filas}
+              corta={p.corta}
+            />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

@@ -319,7 +319,7 @@ button, input, select { font: inherit; color: inherit; }
   line-height: 1.5;
 }
 
-/* --- Telemetría: el código que sube al pie ------------------------------- */
+/* --- Telemetría: el código que sube por la mitad de abajo ---------------- */
 
 /*
  * Es decoración y nada más: las líneas no significan nada y no salen de la
@@ -327,52 +327,86 @@ button, input, select { font: inherit; color: inherit; }
  * vale en una demostración. Pero por eso mismo no se le pone ni una cifra
  * que se pueda confundir con un dato real: ni costos, ni resistencias, ni
  * números de lote. Solo ruido de máquina.
+ *
+ * La profundidad se hace con tres planos, y la regla del paralaje es la que
+ * manda: lo que está lejos se ve chico, tenue y se mueve LENTO; lo que está
+ * cerca se ve grande, desenfocado y pasa RÁPIDO. Si todo se moviera igual
+ * sería una sola imagen desplazándose, no un espacio con fondo.
+ *
+ * La máscara la disuelve hacia arriba: no termina en un borde, se apaga.
  */
 .telemetria {
   position: fixed;
   left: 0; right: 0; bottom: 0;
-  height: 108px;
-  background: linear-gradient(to top, #000 62%, rgba(0, 0, 0, 0.86) 100%);
-  border-top: 1px solid var(--linea);
+  height: 52vh;
   overflow: hidden;
   pointer-events: none;
   z-index: 1;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 32%, rgba(0,0,0,0.55) 62%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 32%, rgba(0,0,0,0.55) 62%, transparent 100%);
+}
+
+.telemetria .plano {
+  position: absolute;
+  inset: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 0;
 }
 
-.telemetria .canal { position: relative; overflow: hidden; border-right: 1px solid var(--linea-suave); }
-.telemetria .canal:last-child { border-right: none; }
+/* Lejos: mucha columna, letra chica, casi apagada, lentísimo. */
+.telemetria .plano.lejos { grid-template-columns: repeat(9, 1fr); }
+.telemetria .plano.lejos .linea { font-size: 8px; line-height: 11px; color: rgba(255, 140, 26, 0.24); }
+.telemetria .plano.lejos .linea.viva { color: rgba(255, 168, 69, 0.5); text-shadow: none; }
 
+/* Medio: el plano legible, el que da la textura. */
+.telemetria .plano.medio { grid-template-columns: repeat(5, 1fr); }
+.telemetria .plano.medio .linea { font-size: 11px; line-height: 16px; color: rgba(255, 140, 26, 0.34); }
+.telemetria .plano.medio .linea.viva { color: rgba(255, 168, 69, 0.72); text-shadow: 0 0 8px rgba(255, 140, 26, 0.4); }
+
+/* Cerca: grande y fuera de foco, como algo que pasa pegado al vidrio. */
+.telemetria .plano.cerca {
+  grid-template-columns: repeat(3, 1fr);
+  filter: blur(2.2px);
+}
+.telemetria .plano.cerca .linea { font-size: 21px; line-height: 30px; color: rgba(255, 140, 26, 0.2); }
+.telemetria .plano.cerca .linea.viva { color: rgba(255, 168, 69, 0.44); text-shadow: none; }
+
+.telemetria .canal { position: relative; overflow: hidden; }
+/* La retícula solo la dibuja el plano de en medio: en los otros dos sería ruido. */
+.telemetria .plano.medio .canal { border-right: 1px solid var(--linea-suave); }
+.telemetria .plano.medio .canal:last-child { border-right: none; }
+
+/*
+ * Se ancla ARRIBA, no abajo. Anclada abajo, al subir se llevaba su propio
+ * borde inferior y dejaba la columna vacía por debajo: se veía como si la
+ * cinta se hubiera terminado. Con top:0 y el contenido duplicado, mover la
+ * mitad exacta deja al segundo bloque en el lugar del primero y el bucle no
+ * tiene costura ni hueco —siempre que un bloque sea más alto que el marco,
+ * que es lo que fijan las filas de cada plano.
+ */
 .telemetria .cinta {
   position: absolute;
-  bottom: 0;
+  top: 0;
   width: 100%;
-  padding: 0 14px;
+  padding: 0 12px;
   animation: subir linear infinite;
   will-change: transform;
 }
 
 .telemetria .linea {
   font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 15px;
   letter-spacing: 0.02em;
-  color: rgba(255, 140, 26, 0.34);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: clip;
 }
-.telemetria .linea.viva { color: rgba(255, 168, 69, 0.92); text-shadow: 0 0 8px rgba(255, 140, 26, 0.5); }
 
 @keyframes subir {
   from { transform: translateY(0); }
   to   { transform: translateY(-50%); }
 }
 
-/* Deja aire al final del contenido para que la cinta no tape la última fila. */
-.lienzo { padding-bottom: 148px; }
+/* Deja aire al final del contenido para que la cinta no lo toque. */
+.lienzo { padding-bottom: clamp(120px, 16vh, 200px); }
 
 /* Quien pide menos movimiento no recibe una pantalla animada en la cara. */
 @media (prefers-reduced-motion: reduce) {
@@ -384,12 +418,18 @@ button, input, select { font: inherit; color: inherit; }
 @media (max-width: 900px) {
   .rejilla.dos-uno, .rejilla.uno-uno { grid-template-columns: 1fr; }
   .lienzo { gap: 20px; }
-  .telemetria { grid-template-columns: repeat(2, 1fr); height: 84px; }
+  /* Menos columnas, no menos alto: la mitad de abajo se respeta en todas
+     las pantallas. En un teléfono nueve columnas serían una mancha. */
+  .telemetria .plano.lejos { grid-template-columns: repeat(5, 1fr); }
+  .telemetria .plano.medio { grid-template-columns: repeat(3, 1fr); }
+  .telemetria .plano.cerca { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 560px) {
   .barra { height: auto; padding: 12px 16px; flex-direction: column; align-items: flex-start; gap: 10px; }
   .nav { flex-wrap: wrap; gap: 14px; }
-  .telemetria { height: 66px; }
-  .lienzo { padding-bottom: 104px; }
+  .telemetria .plano.lejos { grid-template-columns: repeat(3, 1fr); }
+  .telemetria .plano.medio { grid-template-columns: repeat(2, 1fr); }
+  .telemetria .plano.cerca { grid-template-columns: 1fr; }
+  .telemetria .plano.cerca .linea { font-size: 17px; line-height: 25px; }
 }
