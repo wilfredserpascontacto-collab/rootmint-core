@@ -1,4 +1,5 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import Comercial from "./comercial/Comercial";
 import Lotes from "./pantallas/Lotes";
 import FichaLote from "./pantallas/FichaLote";
 import Planta from "./pantallas/Planta";
@@ -10,6 +11,8 @@ import Catalogo from "./pantallas/Catalogo";
 import Telemetria from "./comp/Telemetria";
 
 export default function App() {
+  const location = useLocation();
+  if (location.pathname.startsWith("/comercial")) return <Routes><Route path="/comercial/*" element={<Comercial />} /></Routes>;
   return (
     <div className="app">
       <header className="barra">
@@ -20,6 +23,7 @@ export default function App() {
           </span>
         </div>
         <nav className="nav">
+          <NavLink to="/comercial">Comercial</NavLink>
           <NavLink to="/lotes" className={({ isActive }) => (isActive ? "activo" : "")}>Lotes</NavLink>
           <NavLink to="/planta" className={({ isActive }) => (isActive ? "activo" : "")}>Planta</NavLink>
           <NavLink to="/recetas" className={({ isActive }) => (isActive ? "activo" : "")}>Recetas</NavLink>

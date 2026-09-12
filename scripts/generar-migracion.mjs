@@ -24,7 +24,7 @@ for (const f of ARCHIVOS) {
 
 try {
   const args = process.argv.slice(2);
-  const r = spawnSync("npx", ["drizzle-kit", "generate", ...args], { stdio: "inherit" });
+  const r = spawnSync(process.execPath, ["node_modules/drizzle-kit/bin.cjs", "generate", ...args], { stdio: "inherit" });
   process.exitCode = r.status ?? 1;
 } finally {
   for (const [f, texto] of originales) writeFileSync(f, texto);

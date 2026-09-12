@@ -7,6 +7,7 @@ import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 
 const createSchema = z.object({
+  stage: z.enum(["prospect", "customer"]).default("prospect"),
   type: z.enum(["person", "company"]),
   name: z.string().min(1),
   nit: z.string().optional(),

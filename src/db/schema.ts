@@ -66,6 +66,7 @@ export const users = pgTable("users", {
 // --- El cliente del cliente ------------------------------------------------
 
 export const customers = pgTable("customers", {
+  stage: text("stage").notNull().default("customer"),
   id: uuid("id").primaryKey().defaultRandom(),
   type: customerTypeEnum("type").notNull(),
   name: text("name").notNull(),
@@ -116,6 +117,8 @@ export const catalogItems = pgTable("catalog_items", {
 // --- Cotización ----------------------------------------------------------
 
 export const quotes = pgTable("quotes", {
+  customerSnapshot: jsonb("customer_snapshot"),
+  businessSnapshot: jsonb("business_snapshot"),
   id: uuid("id").primaryKey().defaultRandom(),
   number: integer("number").notNull().unique(),
   customerId: uuid("customer_id")
@@ -165,4 +168,15 @@ export const activityLog = pgTable("activity_log", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+});
+
+export const businessProfile = pgTable("business_profile", {
+  id: integer("id").primaryKey().default(1),
+  name: text("name").notNull(),
+  address: text("address").notNull().default(""),
+  phone: text("phone").notNull().default(""),
+  email: text("email").notNull().default(""),
+  nit: text("nit").notNull().default(""),
+  terms: text("terms").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

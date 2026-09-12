@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { catalogItems, quoteLines, quotes } from "../db/schema.js";
+import { catalogItems, quoteLines, quotes, customers, contacts, businessProfile } from "../db/schema.js";
+import { quoteTotals } from "../lib/quote-math.js";
 import { logActivity } from "../lib/activity-log.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { getUserId } from "../lib/request-context.js";
@@ -34,7 +35,7 @@ const statusUpdateSchema = z.object({
 });
 
 async function loadQuoteWithLines(quoteId: string) {
-  const [quote] = await db.select().from(quotes).where(eq(quotes.id, quoteId));
+  const [quote] = await db.select().from(quotes).where(and(eq(quotes.id, quoteId), isNull(quotes.deletedAt)));
   if (!quote) return null;
   const lines = await db
     .select()
@@ -72,11 +73,18 @@ export async function quotesRoutes(app: FastifyInstance) {
     const userId = getUserId(req);
 
     const created = await db.transaction(async (tx) => {
+      const [customer] = await tx.select().from(customers).where(and(eq(customers.id, body.customerId), isNull(customers.deletedAt), eq(customers.active, true)));
+      if (!customer) throw Object.assign(new Error("Seleccione un cliente activo."), { statusCode: 400 });
+      if (body.contactId) {
+        const [contact] = await tx.select().from(contacts).where(and(eq(contacts.id, body.contactId), eq(contacts.customerId, customer.id), isNull(contacts.deletedAt)));
+        if (!contact) throw Object.assign(new Error("El contacto no pertenece al cliente."), { statusCode: 400 });
+      }
+      const [profile] = await tx.select().from(businessProfile).where(eq(businessProfile.id, 1));
       // Las líneas sin precio/descripción explícitos los toman del catálogo
       // en este mismo momento; de ahí en adelante quedan congelados.
       const resolvedLines = await Promise.all(
         body.lines.map(async (line) => {
-          if (line.description !== undefined && line.unitPriceCents !== undefined) {
+          if (!line.catalogItemId && line.description !== undefined && line.unitPriceCents !== undefined) {
             return {
               catalogItemId: line.catalogItemId ?? null,
               description: line.description,
@@ -85,15 +93,15 @@ export async function quotesRoutes(app: FastifyInstance) {
             };
           }
           if (!line.catalogItemId) {
-            throw new Error(
+            throw Object.assign(new Error(
               "Cada línea necesita catalogItemId, o description y unitPriceCents explícitos",
-            );
+            ), { statusCode: 400 });
           }
           const [item] = await tx
             .select()
             .from(catalogItems)
             .where(eq(catalogItems.id, line.catalogItemId));
-          if (!item) throw new Error(`catalog_item ${line.catalogItemId} no existe`);
+          if (!item || !item.active || item.deletedAt) throw Object.assign(new Error("El producto seleccionado no está activo."), { statusCode: 400 });
           return {
             catalogItemId: item.id,
             description: line.description ?? item.name,
@@ -103,12 +111,7 @@ export async function quotesRoutes(app: FastifyInstance) {
         }),
       );
 
-      const subtotalCents = resolvedLines.reduce(
-        (sum, l) => sum + l.unitPriceCents * l.quantity,
-        0,
-      );
-      const taxCents = Math.round((subtotalCents * body.taxRatePercent) / 100);
-      const totalCents = subtotalCents + taxCents;
+      const { subtotalCents, taxCents, totalCents } = quoteTotals(resolvedLines, body.taxRatePercent);
 
       const number = await nextCorrelativo(tx, "quote");
 
@@ -116,6 +119,8 @@ export async function quotesRoutes(app: FastifyInstance) {
         .insert(quotes)
         .values({
           number,
+          customerSnapshot: { name: customer.name, nit: customer.nit, nrc: customer.nrc, address: customer.address, email: customer.email, phone: customer.phone },
+          businessSnapshot: profile ?? { name: "Mi empresa" },
           customerId: body.customerId,
           contactId: body.contactId,
           workLocation: body.workLocation,
@@ -167,8 +172,11 @@ export async function quotesRoutes(app: FastifyInstance) {
     const userId = getUserId(req);
 
     const updated = await db.transaction(async (tx) => {
-      const [before] = await tx.select().from(quotes).where(eq(quotes.id, id));
+      const [before] = await tx.select().from(quotes).where(and(eq(quotes.id, id), isNull(quotes.deletedAt))).for("update");
       if (!before) return null;
+      if (before.status === body.status) return before;
+      const allowed: Record<string, string[]> = { draft: ["sent"], sent: ["accepted", "rejected", "expired"], accepted: [], rejected: [], expired: [] };
+      if (!allowed[before.status]?.includes(body.status)) throw Object.assign(new Error("Ese cambio de estado no está permitido."), { statusCode: 409 });
 
       const [after] = await tx
         .update(quotes)
@@ -202,6 +210,8 @@ export async function quotesRoutes(app: FastifyInstance) {
         .from(quotes)
         .where(and(eq(quotes.id, id), isNull(quotes.deletedAt)));
       if (!before) return null;
+
+      if (before.status !== "draft") throw Object.assign(new Error("Solo se pueden archivar borradores."), { statusCode: 409 });
 
       const [after] = await tx
         .update(quotes)

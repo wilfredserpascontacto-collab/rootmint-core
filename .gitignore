@@ -6,3 +6,6 @@ _to_delete
 dist-web
 web/node_modules
 web/tsconfig.tsbuildinfo
+.local-data/
+.test-data/
+.sites-runtime/
