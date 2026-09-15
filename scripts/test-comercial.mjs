@@ -23,11 +23,19 @@ try {
   await request('PUT','/business-profile',{name:'Empresa nueva'});
   const historical=await request('GET','/quotes/'+q.id);
   assert.equal(historical.lines[0].unitPriceCents,65);assert.equal(historical.customerSnapshot.name,'Prospecto de prueba');assert.equal(historical.businessSnapshot.name,'Empresa de prueba');
-  await request('PATCH','/quotes/'+q.id+'/status',{status:'accepted'},409);
-  await request('PATCH','/quotes/'+q.id+'/status',{status:'sent'});
+  // Ningún estado es una puerta de un solo sentido: el que se equivoca de
+  // botón tiene que poder deshacerlo, y el que va por el camino natural no
+  // tiene que ver avisos que no le hacen falta.
+  const emitida=await request('PATCH','/quotes/'+q.id+'/status',{status:'sent'});
+  assert.equal(emitida.aviso,null,'el curso natural no debe avisar');
   await request('PATCH','/quotes/'+q.id+'/status',{status:'accepted'});
-  await request('PATCH','/quotes/'+q.id+'/status',{status:'draft'},409);
-  await request('DELETE','/quotes/'+q.id,undefined,409);
+  const corregida=await request('PATCH','/quotes/'+q.id+'/status',{status:'draft'});
+  assert.equal(corregida.status,'draft');
+  assert.match(corregida.aviso,/corrigió/,'volver atrás debe avisar sin impedir');
+  // Y una cotización ya emitida al cliente equivocado se puede archivar.
+  await request('PATCH','/quotes/'+q.id+'/status',{status:'sent'});
+  await request('DELETE','/quotes/'+q.id,undefined,204);
+  await request('GET','/quotes/'+q.id,undefined,404);
   await request('POST','/quotes',{...body,lines:[{description:'Invalid',quantity:-1,unitPriceCents:1}]},400);
   await request('POST','/quotes',{...body,lines:[{description:'Overflow',quantity:1000000,unitPriceCents:1000000}]},400);
   await request('POST','/quotes',{...body,customerId:'11111111-1111-4111-8111-111111111111'},400);
@@ -39,5 +47,5 @@ try {
   await request('DELETE','/quotes/'+parallel[0].id,undefined,204);
   await request('GET','/quotes/'+parallel[0].id,undefined,404);
   await request('GET','/quotes/missing-route/test',undefined,404);
-  console.log('PASS: totals, historical snapshots, stages, state transitions, overflow, invalid input, active catalog, concurrent numbers, soft deletion and API 404.');
+  console.log('PASA: totales, copias históricas, etapas, corrección de estado con aviso, archivado en cualquier estado, desbordamiento, entradas inválidas, catálogo activo, correlativos en paralelo, baja lógica y 404 de la API.');
 } finally { await app.close();await pool.end(); }

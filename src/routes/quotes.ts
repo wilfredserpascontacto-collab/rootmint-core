@@ -34,6 +34,39 @@ const statusUpdateSchema = z.object({
   status: z.enum(["draft", "sent", "accepted", "rejected", "expired"]),
 });
 
+const ESTADO_ES: Record<string, string> = {
+  draft: "Borrador",
+  sent: "Emitida",
+  accepted: "Aceptada",
+  rejected: "Rechazada",
+  expired: "Vencida",
+};
+
+/**
+ * El camino que sigue una cotización cuando todo va bien.
+ *
+ * No es una reja: cualquier estado puede ir a cualquier otro. Antes esto era
+ * una lista de transiciones permitidas y las de vuelta se rechazaban con un
+ * 409. El efecto en la vida real era que una persona tocaba «Marcar como
+ * emitida» sin querer y esa cotización quedaba emitida para siempre —
+ * tampoco se podía archivar, porque el archivado exigía que fuera borrador.
+ * Un sistema donde un clic equivocado no tiene vuelta atrás obliga a la
+ * gente a inventar cotizaciones nuevas para tapar la anterior, y entonces
+ * los números dejan de querer decir algo.
+ *
+ * Lo que queda de aquella lista es el aviso: cuando el cambio no sigue el
+ * curso natural se devuelve un texto para que la pantalla lo muestre. La
+ * bitácora guarda de dónde a dónde se movió y quién lo hizo. Avisar y dejar
+ * rastro, no impedir.
+ */
+const CURSO_NATURAL: Record<string, string[]> = {
+  draft: ["sent"],
+  sent: ["accepted", "rejected", "expired"],
+  accepted: [],
+  rejected: [],
+  expired: [],
+};
+
 async function loadQuoteWithLines(quoteId: string) {
   const [quote] = await db.select().from(quotes).where(and(eq(quotes.id, quoteId), isNull(quotes.deletedAt)));
   if (!quote) return null;
@@ -174,9 +207,7 @@ export async function quotesRoutes(app: FastifyInstance) {
     const updated = await db.transaction(async (tx) => {
       const [before] = await tx.select().from(quotes).where(and(eq(quotes.id, id), isNull(quotes.deletedAt))).for("update");
       if (!before) return null;
-      if (before.status === body.status) return before;
-      const allowed: Record<string, string[]> = { draft: ["sent"], sent: ["accepted", "rejected", "expired"], accepted: [], rejected: [], expired: [] };
-      if (!allowed[before.status]?.includes(body.status)) throw Object.assign(new Error("Ese cambio de estado no está permitido."), { statusCode: 409 });
+      if (before.status === body.status) return { ...before, aviso: null };
 
       const [after] = await tx
         .update(quotes)
@@ -193,7 +224,14 @@ export async function quotesRoutes(app: FastifyInstance) {
         oldValues: { status: before.status },
         newValues: { status: after.status },
       });
-      return after;
+
+      const esCorreccion = !CURSO_NATURAL[before.status]?.includes(after.status);
+      return {
+        ...after,
+        aviso: esCorreccion
+          ? `Se corrigió el estado: de «${ESTADO_ES[before.status]}» a «${ESTADO_ES[after.status]}». Queda registrado en la bitácora.`
+          : null,
+      };
     });
 
     if (!updated) return reply.code(404).send({ error: "No encontrado" });
@@ -211,8 +249,11 @@ export async function quotesRoutes(app: FastifyInstance) {
         .where(and(eq(quotes.id, id), isNull(quotes.deletedAt)));
       if (!before) return null;
 
-      if (before.status !== "draft") throw Object.assign(new Error("Solo se pueden archivar borradores."), { statusCode: 409 });
-
+      // Se archiva en cualquier estado, no solo en borrador. Una cotización
+      // emitida al cliente equivocado tiene que poder salir de la lista, y el
+      // archivado es lógico (deleted_at): el documento, sus renglones y su
+      // rastro siguen existiendo en la base. No se pierde nada; deja de
+      // estorbar.
       const [after] = await tx
         .update(quotes)
         .set({ deletedAt: new Date(), updatedAt: new Date() })

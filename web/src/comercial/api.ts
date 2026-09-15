@@ -4,7 +4,11 @@ export type Profile = { name:string; phone?:string; email?:string; address?:stri
 export type Line = { catalogItemId?:string; description:string; quantity:number; unitPriceCents:number; subtotalCents?:number };
 export type Quote = { id:string; number:number; customerId:string; issueDate:string; validityDays:number; status:string; subtotalCents:number; taxCents:number; totalCents:number; description?:string; workLocation?:string; terms?:string; notes?:string; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[] };
 export async function api<T>(path:string, method="GET", body?:unknown):Promise<T> {
- const response=await fetch(path,{ method, headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body) });
+ // La cabecera de JSON solo cuando de verdad viaja un JSON. Anunciarla con el
+ // cuerpo vacío —lo que pasa en todo DELETE— hace que Fastify conteste 400
+ // «Body cannot be empty», un error en inglés y de la casa que no tiene nada
+ // que ver con lo que la persona hizo.
+ const response=await fetch(path,{ method, headers:body===undefined?undefined:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body) });
  const data=await response.json().catch(()=>null);
  if(!response.ok) throw new Error(data?.details?.[0]?.message ? data.error+": "+data.details[0].message : data?.error ?? "No se pudo conectar. Intenta de nuevo.");
  return data;
