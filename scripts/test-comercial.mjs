@@ -23,11 +23,38 @@ try {
   await request('PUT','/business-profile',{name:'Empresa nueva'});
   const historical=await request('GET','/quotes/'+q.id);
   assert.equal(historical.lines[0].unitPriceCents,65);assert.equal(historical.customerSnapshot.name,'Prospecto de prueba');assert.equal(historical.businessSnapshot.name,'Empresa de prueba');
+  // --- Corregir una cotización guardada ---------------------------------
+  // Antes esto no existía: una cotización guardada era de piedra.
+  const editada = await request('PATCH','/quotes/'+q.id,{lines:[{description:'Bloque corregido',quantity:100,unitPriceCents:50}]});
+  assert.equal(editada.subtotalCents,5000);
+  assert.equal(editada.taxCents,650,'conserva el 13% sin que se lo vuelvan a mandar');
+  assert.equal(editada.totalCents,5650);
+  assert.equal(editada.aviso,null,'corregir un borrador no necesita aviso');
+  // La partida vieja no se borra, se da de baja: el detalle solo trae la nueva.
+  const releida = await request('GET','/quotes/'+q.id);
+  assert.equal(releida.lines.length,1);
+  assert.equal(releida.lines[0].description,'Bloque corregido');
+  // Cambiar solo la tasa recalcula sobre las partidas que ya están.
+  const sinImpuesto = await request('PATCH','/quotes/'+q.id,{taxRatePercent:0});
+  assert.equal(sinImpuesto.taxCents,0);
+  assert.equal(sinImpuesto.totalCents,5000);
+  await request('PATCH','/quotes/'+q.id,{taxRatePercent:13});
+  // El cliente sí se puede cambiar mientras es borrador, y el retrato se vuelve a congelar.
+  const otro = await request('POST','/customers',{name:'Cliente equivocado',type:'company'},201);
+  const reasignada = await request('PATCH','/quotes/'+q.id,{customerId:otro.id});
+  assert.equal(reasignada.customerSnapshot.name,'Cliente equivocado');
+  await request('PATCH','/quotes/'+q.id,{customerId:c.id});
+
   // Ningún estado es una puerta de un solo sentido: el que se equivoca de
   // botón tiene que poder deshacerlo, y el que va por el camino natural no
   // tiene que ver avisos que no le hacen falta.
   const emitida=await request('PATCH','/quotes/'+q.id+'/status',{status:'sent'});
   assert.equal(emitida.aviso,null,'el curso natural no debe avisar');
+  // Ya emitida y aun así corregible: avisa, no impide.
+  const tocadaEmitida = await request('PATCH','/quotes/'+q.id,{description:'Proyecto corregido despues de emitir'});
+  assert.match(tocadaEmitida.aviso,/ya está «Emitida»/,'corregir algo emitido tiene que avisar');
+  // Pero el cliente ya no: sería otro documento con el mismo número.
+  await request('PATCH','/quotes/'+q.id,{customerId:otro.id},409);
   await request('PATCH','/quotes/'+q.id+'/status',{status:'accepted'});
   const corregida=await request('PATCH','/quotes/'+q.id+'/status',{status:'draft'});
   assert.equal(corregida.status,'draft');
@@ -47,5 +74,5 @@ try {
   await request('DELETE','/quotes/'+parallel[0].id,undefined,204);
   await request('GET','/quotes/'+parallel[0].id,undefined,404);
   await request('GET','/quotes/missing-route/test',undefined,404);
-  console.log('PASA: totales, copias históricas, etapas, corrección de estado con aviso, archivado en cualquier estado, desbordamiento, entradas inválidas, catálogo activo, correlativos en paralelo, baja lógica y 404 de la API.');
+  console.log('PASA: totales, corrección de contenido con recálculo, copias históricas, etapas, corrección de estado con aviso, archivado en cualquier estado, desbordamiento, entradas inválidas, catálogo activo, correlativos en paralelo, baja lógica y 404 de la API.');
 } finally { await app.close();await pool.end(); }

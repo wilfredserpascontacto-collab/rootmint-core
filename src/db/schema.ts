@@ -133,6 +133,17 @@ export const quotes = pgTable("quotes", {
   subtotalCents: integer("subtotal_cents").notNull().default(0),
   taxCents: integer("tax_cents").notNull().default(0),
   totalCents: integer("total_cents").notNull().default(0),
+  /**
+   * La tasa con la que se calculó el impuesto, en milésimas de punto
+   * porcentual: 13% se guarda como 13000.
+   *
+   * Antes solo se guardaba el monto. Con el monto solo no se puede recalcular
+   * nada al corregir una cotización —habría que deducir la tasa dividiendo, y
+   * la división arrastra el redondeo—, ni saber con qué tasa se emitió un
+   * documento viejo si el día de mañana el IVA cambia. La tasa es parte de lo
+   * que se congela, igual que el precio de cada renglón.
+   */
+  taxRateMilli: integer("tax_rate_milli").notNull().default(0),
   notes: text("notes"),
   terms: text("terms"),
   createdBy: uuid("created_by").references(() => users.id),

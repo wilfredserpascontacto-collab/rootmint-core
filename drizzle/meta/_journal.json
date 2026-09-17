@@ -29,6 +29,13 @@
       "when": 1789147130876,
       "tag": "0003_comercial",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789486753111,
+      "tag": "0004_tasa_impuesto",
+      "breakpoints": true
     }
   ]
 }

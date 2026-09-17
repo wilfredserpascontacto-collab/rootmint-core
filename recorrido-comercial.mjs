@@ -48,6 +48,43 @@ await p.getByRole("button", { name: "Guardar cotización" }).click();
 await p.waitForURL(/#\/comercial\/cotizaciones\/[0-9a-f-]{36}/, { timeout: 8000 }).catch(() => errores.push("cotización: guardar no llevó a la ficha"));
 paso("cotización · guardada como borrador");
 
+// --- 1b. Corregirla: lo que hasta hoy no se podía hacer --------------------
+await p.getByRole("link", { name: "Corregir" }).click();
+await p.waitForTimeout(800);
+const precioCargado = await p.getByLabel("Precio partida 1").inputValue();
+if (precioCargado !== "0.65") errores.push(`corregir: el precio no se precargó (dice "${precioCargado}")`);
+else paso("corregir · el formulario abre con lo que ya estaba escrito");
+// Un precio pegado desde una planilla, con coma de miles y signo de dólar.
+await p.getByLabel("Precio partida 1").fill("$1,250.00");
+await p.waitForTimeout(250);
+const conComa = await p.locator(".c-line-total").first().innerText();
+if (!/3,750,000\.00/.test(conComa)) errores.push(`corregir: «$1,250.00» × 3000 dio "${conComa}"`);
+else paso(`corregir · acepta «$1,250.00» pegado de una planilla: ${conComa}`);
+// Un precio que no se entiende avisa en vez de congelarse en silencio.
+await p.getByLabel("Precio partida 1").fill("dos sesenta");
+await p.waitForTimeout(250);
+const quejaPrecio = await p.locator(".c-line-editor .c-error").first().innerText().catch(() => "");
+if (!/no se entiende/i.test(quejaPrecio)) errores.push("corregir: un precio ilegible no avisó");
+else paso(`corregir · precio ilegible: «${quejaPrecio.slice(0, 60)}…»`);
+await foto("A2-precio-ilegible");
+// Y el aviso de guardado dice cuál partida, no «alguna».
+await p.getByRole("button", { name: "Guardar cambios" }).click();
+await p.waitForTimeout(500);
+const cual = await p.locator(".c-summary .c-error").first().innerText().catch(() => "");
+if (!/partida 1/i.test(cual)) errores.push(`corregir: el aviso no dijo cuál partida («${cual}»)`);
+else paso(`corregir · el aviso señala la partida: «${cual.slice(0, 70)}…»`);
+
+await p.getByLabel("Precio partida 1").fill("0.65");
+await p.getByLabel("Cantidad partida 1").fill("1200");
+await p.waitForTimeout(300);
+await p.getByRole("button", { name: "Guardar cambios" }).click();
+await p.waitForURL(/#\/comercial\/cotizaciones\/[0-9a-f-]{36}$/, { timeout: 8000 }).catch(() => {});
+await p.waitForTimeout(700);
+const totalCorregido = await p.locator(".c-paper-totals .c-grand dd").first().innerText().catch(() => "");
+if (!/881\.40/.test(totalCorregido)) errores.push(`corregir: el total quedó en "${totalCorregido}", se esperaba $881.40 (1200 × $0.65 + 13%)`);
+else paso(`corregir · guardado y recalculado: ${totalCorregido}`);
+await foto("A3-corregida");
+
 // --- 2. El botón equivocado ------------------------------------------------
 await p.getByRole("button", { name: "Marcar como emitida" }).click();
 await p.waitForTimeout(700);

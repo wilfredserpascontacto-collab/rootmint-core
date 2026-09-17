@@ -34,6 +34,29 @@ const statusUpdateSchema = z.object({
   status: z.enum(["draft", "sent", "accepted", "rejected", "expired"]),
 });
 
+/**
+ * Corregir una cotización ya guardada.
+ *
+ * Todo es opcional: se manda solo lo que cambió. `lines`, si viene, reemplaza
+ * la lista entera —es como funciona la pantalla, que edita las partidas juntas—
+ * y las anteriores quedan de baja lógica, no borradas.
+ *
+ * El cliente no está acá a propósito: cambiarlo se maneja aparte porque solo
+ * se permite mientras la cotización sea borrador.
+ */
+const contentUpdateSchema = z.object({
+  customerId: z.string().uuid().optional(),
+  contactId: z.string().uuid().nullable().optional(),
+  workLocation: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  issueDate: z.coerce.date().optional(),
+  validityDays: z.number().int().positive().max(3650).optional(),
+  taxRatePercent: z.number().min(0).max(100).optional(),
+  notes: z.string().nullable().optional(),
+  terms: z.string().nullable().optional(),
+  lines: z.array(lineInputSchema).min(1).optional(),
+});
+
 const ESTADO_ES: Record<string, string> = {
   draft: "Borrador",
   sent: "Emitida",
@@ -66,6 +89,52 @@ const CURSO_NATURAL: Record<string, string[]> = {
   rejected: [],
   expired: [],
 };
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Deja cada renglón con descripción y precio propios.
+ *
+ * Lo que viene del catálogo se copia acá y desde este momento es de la
+ * cotización: si mañana sube el precio del bloque, la cotización de hoy sigue
+ * diciendo lo que dijo. Por eso también se exige que el producto esté activo
+ * al momento de escribir el renglón, y no después.
+ */
+async function resolverRenglones(tx: Tx, lines: z.infer<typeof lineInputSchema>[]) {
+  return Promise.all(
+    lines.map(async (line) => {
+      if (!line.catalogItemId && line.description !== undefined && line.unitPriceCents !== undefined) {
+        return {
+          catalogItemId: null as string | null,
+          description: line.description,
+          unitPriceCents: line.unitPriceCents,
+          quantity: line.quantity,
+        };
+      }
+      if (!line.catalogItemId) {
+        throw Object.assign(
+          new Error("Cada línea necesita catalogItemId, o description y unitPriceCents explícitos"),
+          { statusCode: 400 },
+        );
+      }
+      const [item] = await tx.select().from(catalogItems).where(eq(catalogItems.id, line.catalogItemId));
+      if (!item || !item.active || item.deletedAt) {
+        throw Object.assign(new Error("El producto seleccionado no está activo."), { statusCode: 400 });
+      }
+      return {
+        catalogItemId: item.id as string | null,
+        description: line.description ?? item.name,
+        unitPriceCents: line.unitPriceCents ?? item.unitPriceCents,
+        quantity: line.quantity,
+      };
+    }),
+  );
+}
+
+/** La copia del cliente que se congela dentro de la cotización. */
+function retratoDelCliente(c: typeof customers.$inferSelect) {
+  return { name: c.name, nit: c.nit, nrc: c.nrc, address: c.address, email: c.email, phone: c.phone };
+}
 
 async function loadQuoteWithLines(quoteId: string) {
   const [quote] = await db.select().from(quotes).where(and(eq(quotes.id, quoteId), isNull(quotes.deletedAt)));
@@ -115,34 +184,7 @@ export async function quotesRoutes(app: FastifyInstance) {
       const [profile] = await tx.select().from(businessProfile).where(eq(businessProfile.id, 1));
       // Las líneas sin precio/descripción explícitos los toman del catálogo
       // en este mismo momento; de ahí en adelante quedan congelados.
-      const resolvedLines = await Promise.all(
-        body.lines.map(async (line) => {
-          if (!line.catalogItemId && line.description !== undefined && line.unitPriceCents !== undefined) {
-            return {
-              catalogItemId: line.catalogItemId ?? null,
-              description: line.description,
-              unitPriceCents: line.unitPriceCents,
-              quantity: line.quantity,
-            };
-          }
-          if (!line.catalogItemId) {
-            throw Object.assign(new Error(
-              "Cada línea necesita catalogItemId, o description y unitPriceCents explícitos",
-            ), { statusCode: 400 });
-          }
-          const [item] = await tx
-            .select()
-            .from(catalogItems)
-            .where(eq(catalogItems.id, line.catalogItemId));
-          if (!item || !item.active || item.deletedAt) throw Object.assign(new Error("El producto seleccionado no está activo."), { statusCode: 400 });
-          return {
-            catalogItemId: item.id,
-            description: line.description ?? item.name,
-            unitPriceCents: line.unitPriceCents ?? item.unitPriceCents,
-            quantity: line.quantity,
-          };
-        }),
-      );
+      const resolvedLines = await resolverRenglones(tx, body.lines);
 
       const { subtotalCents, taxCents, totalCents } = quoteTotals(resolvedLines, body.taxRatePercent);
 
@@ -152,7 +194,7 @@ export async function quotesRoutes(app: FastifyInstance) {
         .insert(quotes)
         .values({
           number,
-          customerSnapshot: { name: customer.name, nit: customer.nit, nrc: customer.nrc, address: customer.address, email: customer.email, phone: customer.phone },
+          customerSnapshot: retratoDelCliente(customer),
           businessSnapshot: profile ?? { name: "Mi empresa" },
           customerId: body.customerId,
           contactId: body.contactId,
@@ -163,6 +205,7 @@ export async function quotesRoutes(app: FastifyInstance) {
           subtotalCents,
           taxCents,
           totalCents,
+          taxRateMilli: Math.round(body.taxRatePercent * 1000),
           notes: body.notes,
           terms: body.terms,
           createdBy: userId,
@@ -197,6 +240,150 @@ export async function quotesRoutes(app: FastifyInstance) {
     });
 
     return reply.code(201).send(created);
+  });
+
+  /**
+   * Corregir una cotización.
+   *
+   * Hasta ahora una cotización guardada era de piedra: no existía forma de
+   * tocarle una coma. Un precio mal tecleado obligaba a archivarla y volver a
+   * escribir las doce partidas desde cero, y eso empuja a la gente a inventar
+   * documentos nuevos para tapar el anterior.
+   *
+   * Se puede corregir en cualquier estado, no solo en borrador. Lo que cambia
+   * según el estado es el aviso, no el permiso: si el cliente ya recibió la
+   * propuesta, quien corrige tiene que enterarse de que allá afuera anda una
+   * versión vieja. La bitácora guarda el antes y el después completos.
+   *
+   * La única excepción es el cliente. Cambiarlo estando emitida no sería
+   * corregir un dato: sería otro documento con el mismo número. Mientras es
+   * borrador se permite —no se le prometió nada a nadie todavía— y entonces se
+   * vuelve a congelar el retrato.
+   */
+  app.patch("/quotes/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = contentUpdateSchema.parse(req.body);
+    const userId = getUserId(req);
+
+    const resultado = await db.transaction(async (tx) => {
+      const [antes] = await tx
+        .select()
+        .from(quotes)
+        .where(and(eq(quotes.id, id), isNull(quotes.deletedAt)))
+        .for("update");
+      if (!antes) return null;
+
+      const esBorrador = antes.status === "draft";
+
+      // --- El cliente, solo mientras sea borrador -----------------------
+      let customerId = antes.customerId;
+      let customerSnapshot = antes.customerSnapshot;
+      if (body.customerId && body.customerId !== antes.customerId) {
+        if (!esBorrador) {
+          throw Object.assign(
+            new Error(
+              `Esta cotización ya está «${ESTADO_ES[antes.status]}» y no se le puede cambiar el cliente. ` +
+                "Archivala y creá una nueva para el cliente correcto.",
+            ),
+            { statusCode: 409 },
+          );
+        }
+        const [nuevo] = await tx
+          .select()
+          .from(customers)
+          .where(and(eq(customers.id, body.customerId), isNull(customers.deletedAt), eq(customers.active, true)));
+        if (!nuevo) throw Object.assign(new Error("Seleccione un cliente activo."), { statusCode: 400 });
+        customerId = nuevo.id;
+        customerSnapshot = retratoDelCliente(nuevo);
+      }
+
+      // --- El contacto tiene que ser de ese cliente ---------------------
+      const contactId = body.contactId === undefined ? antes.contactId : body.contactId;
+      if (contactId) {
+        const [contacto] = await tx
+          .select()
+          .from(contacts)
+          .where(and(eq(contacts.id, contactId), eq(contacts.customerId, customerId), isNull(contacts.deletedAt)));
+        if (!contacto) throw Object.assign(new Error("El contacto no pertenece al cliente."), { statusCode: 400 });
+      }
+
+      // --- Los renglones y, con ellos, los totales ----------------------
+      const tasaMilli =
+        body.taxRatePercent === undefined ? antes.taxRateMilli : Math.round(body.taxRatePercent * 1000);
+
+      let renglones = await tx
+        .select()
+        .from(quoteLines)
+        .where(and(eq(quoteLines.quoteId, id), isNull(quoteLines.deletedAt)))
+        .orderBy(asc(quoteLines.displayOrder));
+
+      if (body.lines) {
+        const resueltos = await resolverRenglones(tx, body.lines);
+        // Los viejos quedan de baja lógica: la cotización cambia, su historia no.
+        await tx
+          .update(quoteLines)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(quoteLines.quoteId, id), isNull(quoteLines.deletedAt)));
+        renglones = await tx
+          .insert(quoteLines)
+          .values(
+            resueltos.map((l, i) => ({
+              quoteId: id,
+              catalogItemId: l.catalogItemId,
+              description: l.description,
+              quantity: l.quantity,
+              unitPriceCents: l.unitPriceCents,
+              subtotalCents: l.unitPriceCents * l.quantity,
+              displayOrder: i,
+            })),
+          )
+          .returning();
+      }
+
+      const { subtotalCents, taxCents, totalCents } = quoteTotals(renglones, tasaMilli / 1000);
+
+      const [despues] = await tx
+        .update(quotes)
+        .set({
+          customerId,
+          customerSnapshot,
+          contactId,
+          workLocation: body.workLocation === undefined ? antes.workLocation : body.workLocation,
+          description: body.description === undefined ? antes.description : body.description,
+          issueDate: body.issueDate ?? antes.issueDate,
+          validityDays: body.validityDays ?? antes.validityDays,
+          notes: body.notes === undefined ? antes.notes : body.notes,
+          terms: body.terms === undefined ? antes.terms : body.terms,
+          subtotalCents,
+          taxCents,
+          totalCents,
+          taxRateMilli: tasaMilli,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotes.id, id))
+        .returning();
+      if (!despues) throw new Error("No se pudo corregir la cotización");
+
+      await logActivity(tx, {
+        userId,
+        entity: "quotes",
+        entityId: id,
+        action: "update",
+        oldValues: antes,
+        newValues: { ...despues, lines: renglones },
+      });
+
+      return {
+        ...despues,
+        lines: renglones,
+        aviso: esBorrador
+          ? null
+          : `Se corrigió una cotización que ya está «${ESTADO_ES[antes.status]}». Si el cliente ya recibió la anterior, conviene volvérsela a enviar.`,
+      };
+    });
+
+    if (!resultado) return reply.code(404).send({ error: "No encontrado" });
+    return resultado;
   });
 
   app.patch("/quotes/:id/status", async (req, reply) => {
