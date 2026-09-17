@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { catalogItems, quoteLines, quotes, customers, contacts, businessProfile } from "../db/schema.js";
+import { catalogItems, quoteLines, quotes, customers, contacts, businessProfile, customerPrices } from "../db/schema.js";
 import { quoteTotals } from "../lib/quote-math.js";
 import { logActivity } from "../lib/activity-log.js";
 import { nextCorrelativo } from "../lib/counters.js";
@@ -100,8 +100,19 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * diciendo lo que dijo. Por eso también se exige que el producto esté activo
  * al momento de escribir el renglón, y no después.
  */
-async function resolverRenglones(tx: Tx, lines: z.infer<typeof lineInputSchema>[]) {
-  return Promise.all(
+async function resolverRenglones(tx: Tx, lines: z.infer<typeof lineInputSchema>[], customerId: string) {
+  // El precio acordado con este cliente gana sobre el del catálogo, pero solo
+  // cuando nadie escribió uno a mano: lo que la persona teclea manda siempre.
+  const acordados = await tx
+    .select()
+    .from(customerPrices)
+    .where(and(eq(customerPrices.customerId, customerId), isNull(customerPrices.deletedAt)));
+  const porProducto = new Map(
+    acordados.filter((p) => p.catalogItemId).map((p) => [p.catalogItemId as string, p]),
+  );
+  const avisos: string[] = [];
+
+  const renglones = await Promise.all(
     lines.map(async (line) => {
       if (!line.catalogItemId && line.description !== undefined && line.unitPriceCents !== undefined) {
         return {
@@ -121,13 +132,49 @@ async function resolverRenglones(tx: Tx, lines: z.infer<typeof lineInputSchema>[
       if (!item || !item.active || item.deletedAt) {
         throw Object.assign(new Error("El producto seleccionado no está activo."), { statusCode: 400 });
       }
+      const acordado = porProducto.get(item.id);
+      // Sin precio explícito manda el acuerdo; con precio explícito manda lo
+      // que se escribió. La pantalla siempre manda uno —necesita mostrar el
+      // total en vivo— así que el aviso no puede depender de que venga vacío:
+      // se da cuando el precio que quedó es el acordado y ese difiere del
+      // catálogo, sin importar quién lo resolvió.
+      const precioFinal = line.unitPriceCents ?? acordado?.unitPriceCents ?? item.unitPriceCents;
+      if (acordado && precioFinal === acordado.unitPriceCents && acordado.unitPriceCents !== item.unitPriceCents) {
+        avisos.push(
+          `«${item.name}» salió a ${dinero(acordado.unitPriceCents)} por el precio acordado con este cliente, ` +
+            `no a ${dinero(item.unitPriceCents)} del catálogo.`,
+        );
+      }
       return {
         catalogItemId: item.id as string | null,
         description: line.description ?? item.name,
-        unitPriceCents: line.unitPriceCents ?? item.unitPriceCents,
+        unitPriceCents: precioFinal,
         quantity: line.quantity,
       };
     }),
+  );
+
+  return { renglones, avisos };
+}
+
+/** Centavos enteros como los lee una persona. */
+function dinero(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * El aviso de crédito, cuando lo hay.
+ *
+ * Avisa y no impide, igual que todo lo demás. Y mientras no exista el saldo
+ * —cargos menos abonos, que es el módulo que sigue— lo único con qué comparar
+ * es esta cotización sola; el texto lo dice así para no aparentar que sabe más
+ * de lo que sabe. Sin tope definido no hay nada que avisar: nulo no es cero.
+ */
+function avisoDeCredito(cliente: typeof customers.$inferSelect, totalCents: number) {
+  if (cliente.creditLimitCents === null || totalCents <= cliente.creditLimitCents) return null;
+  return (
+    `Esta cotización sola (${dinero(totalCents)}) pasa el límite de crédito de ${cliente.name} ` +
+    `(${dinero(cliente.creditLimitCents)}). Se puede emitir igual.`
   );
 }
 
@@ -184,7 +231,7 @@ export async function quotesRoutes(app: FastifyInstance) {
       const [profile] = await tx.select().from(businessProfile).where(eq(businessProfile.id, 1));
       // Las líneas sin precio/descripción explícitos los toman del catálogo
       // en este mismo momento; de ahí en adelante quedan congelados.
-      const resolvedLines = await resolverRenglones(tx, body.lines);
+      const { renglones: resolvedLines, avisos } = await resolverRenglones(tx, body.lines, body.customerId);
 
       const { subtotalCents, taxCents, totalCents } = quoteTotals(resolvedLines, body.taxRatePercent);
 
@@ -236,7 +283,8 @@ export async function quotesRoutes(app: FastifyInstance) {
         newValues: { ...quote, lines: insertedLines },
       });
 
-      return { ...quote, lines: insertedLines };
+      const credito = avisoDeCredito(customer, totalCents);
+      return { ...quote, lines: insertedLines, avisos: credito ? [...avisos, credito] : avisos };
     });
 
     return reply.code(201).send(created);
@@ -317,8 +365,10 @@ export async function quotesRoutes(app: FastifyInstance) {
         .where(and(eq(quoteLines.quoteId, id), isNull(quoteLines.deletedAt)))
         .orderBy(asc(quoteLines.displayOrder));
 
+      const avisos: string[] = [];
       if (body.lines) {
-        const resueltos = await resolverRenglones(tx, body.lines);
+        const { renglones: resueltos, avisos: deRenglones } = await resolverRenglones(tx, body.lines, customerId);
+        avisos.push(...deRenglones);
         // Los viejos quedan de baja lógica: la cotización cambia, su historia no.
         await tx
           .update(quoteLines)
@@ -373,13 +423,16 @@ export async function quotesRoutes(app: FastifyInstance) {
         newValues: { ...despues, lines: renglones },
       });
 
-      return {
-        ...despues,
-        lines: renglones,
-        aviso: esBorrador
-          ? null
-          : `Se corrigió una cotización que ya está «${ESTADO_ES[antes.status]}». Si el cliente ya recibió la anterior, conviene volvérsela a enviar.`,
-      };
+      if (!esBorrador) {
+        avisos.unshift(
+          `Se corrigió una cotización que ya está «${ESTADO_ES[antes.status]}». Si el cliente ya recibió la anterior, conviene volvérsela a enviar.`,
+        );
+      }
+      const [duenio] = await tx.select().from(customers).where(eq(customers.id, customerId));
+      const credito = duenio ? avisoDeCredito(duenio, totalCents) : null;
+      if (credito) avisos.push(credito);
+
+      return { ...despues, lines: renglones, avisos };
     });
 
     if (!resultado) return reply.code(404).send({ error: "No encontrado" });
@@ -394,7 +447,7 @@ export async function quotesRoutes(app: FastifyInstance) {
     const updated = await db.transaction(async (tx) => {
       const [before] = await tx.select().from(quotes).where(and(eq(quotes.id, id), isNull(quotes.deletedAt))).for("update");
       if (!before) return null;
-      if (before.status === body.status) return { ...before, aviso: null };
+      if (before.status === body.status) return { ...before, avisos: [] };
 
       const [after] = await tx
         .update(quotes)
@@ -415,9 +468,9 @@ export async function quotesRoutes(app: FastifyInstance) {
       const esCorreccion = !CURSO_NATURAL[before.status]?.includes(after.status);
       return {
         ...after,
-        aviso: esCorreccion
-          ? `Se corrigió el estado: de «${ESTADO_ES[before.status]}» a «${ESTADO_ES[after.status]}». Queda registrado en la bitácora.`
-          : null,
+        avisos: esCorreccion
+          ? [`Se corrigió el estado: de «${ESTADO_ES[before.status]}» a «${ESTADO_ES[after.status]}». Queda registrado en la bitácora.`]
+          : [],
       };
     });
 

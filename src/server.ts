@@ -11,6 +11,7 @@ import { contactsRoutes } from "./routes/contacts.js";
 import { catalogItemsRoutes } from "./routes/catalog-items.js";
 import { quotesRoutes } from "./routes/quotes.js";
 import { businessProfileRoutes } from "./routes/business-profile.js";
+import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
 import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
 import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
@@ -99,6 +100,7 @@ export async function buildServer() {
   await app.register(catalogItemsRoutes);
   await app.register(quotesRoutes);
   await app.register(businessProfileRoutes);
+  await app.register(customerFinanceRoutes);
 
   // Módulo de fabricación de bloques
   await app.register(bloquesCatalogoRoutes);
@@ -133,7 +135,7 @@ export async function buildServer() {
      */
     app.setNotFoundHandler((req, reply) => {
       const url = req.raw.url ?? "";
-      const esApi = /^\/(bloques|health|customers|contacts|catalog-items|quotes|users|business-profile)(\/|\?|$)/.test(url);
+      const esApi = /^\/(bloques|health|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes)(\/|\?|$)/.test(url);
       const esAsset = url.startsWith("/assets/") || /\.[a-z0-9]{2,5}(\?|$)/i.test(url);
       if (esApi || esAsset) {
         return reply.code(404).send({ error: "No encontrado" });

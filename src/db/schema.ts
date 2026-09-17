@@ -79,7 +79,60 @@ export const customers = pgTable("customers", {
   municipality: text("municipality"),
   department: text("department"),
   notes: text("notes"),
+  /**
+   * Hasta cuánto se le fía y a cuántos días. Los dos pueden quedar en nulo, y
+   * nulo no es cero: cero sería «no se le fía nada», nulo es «todavía no se ha
+   * hablado». La diferencia importa porque el sistema avisa sobre el tope, y
+   * no tiene nada que avisar sobre un tope que nadie definió.
+   *
+   * El plazo es un número libre de días, no una lista de opciones: el día que
+   * pacten 45 con alguien, 45 tiene que caber.
+   */
+  creditLimitCents: integer("credit_limit_cents"),
+  creditTermDays: integer("credit_term_days"),
   active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+/**
+ * El precio que se le respeta a un cliente, distinto al del catálogo.
+ *
+ * `catalogItemId` puede ir en nulo a propósito: así cabe un precio acordado
+ * sobre algo que todavía no está en el catálogo, escrito con las palabras de
+ * la persona. Solo los que apuntan a un producto se aplican solos al cotizar;
+ * los sueltos quedan como referencia, que es mejor que no tener dónde
+ * escribirlos.
+ */
+export const customerPrices = pgTable("customer_prices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .references(() => customers.id),
+  catalogItemId: uuid("catalog_item_id").references(() => catalogItems.id),
+  description: text("description").notNull(),
+  unitPriceCents: integer("unit_price_cents").notNull(),
+  unit: text("unit"),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+/**
+ * Lo que pasa con la plata de un cliente, anotado con fecha.
+ *
+ * «12 sept · pidió prórroga hasta fin de mes». No reemplaza al saldo —el saldo
+ * se calcula, no se escribe— sino a la libreta donde hoy esas cosas no se
+ * anotan en ningún lado. La fecha viene puesta pero se puede cambiar: a veces
+ * uno registra el jueves lo que pasó el martes.
+ */
+export const customerMoneyNotes = pgTable("customer_money_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .references(() => customers.id),
+  notedOn: timestamp("noted_on", { withTimezone: true }).notNull().defaultNow(),
+  body: text("body").notNull(),
   createdBy: uuid("created_by").references(() => users.id),
   ...timestamps,
 });

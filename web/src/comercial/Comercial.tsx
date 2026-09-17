@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { NavLink, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon } from "./api";
+import { NavLink, Link, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
+import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata } from "./api";
 import "./comercial.css";
 
 function useData<T>(path:string) {
@@ -30,9 +30,148 @@ function Customers() {
  {editing&&<Modal title={editing.id?"Editar contacto":"Nuevo contacto"} close={()=>setEditing(null)}><form onSubmit={save}><div className="c-form-grid"><Field label="Nombre o razón social" wide><input name="name" defaultValue={editing.name} required autoFocus maxLength={160}/></Field><Field label="Relación"><select name="stage" defaultValue={editing.stage}><option value="prospect">Prospecto</option><option value="customer">Cliente</option></select></Field><Field label="Tipo"><select name="type" defaultValue={editing.type}><option value="company">Empresa</option><option value="person">Persona</option></select></Field>{[["phone","Teléfono"],["email","Correo electrónico"],["nit","NIT"],["nrc","NRC"]].map(([key,label])=><Field key={key} label={label!}><input name={key} type={key==="email"?"email":"text"} defaultValue={editing[key as keyof Customer] as string??""}/></Field>)}<Field label="Dirección" wide><input name="address" defaultValue={editing.address??""}/></Field><Field label="Notas de seguimiento" wide><textarea name="notes" defaultValue={editing.notes??""} rows={3}/></Field></div><ErrorBox message={failure}/><div className="c-actions"><button type="button" onClick={()=>setEditing(null)}>Cancelar</button><button className="c-primary" disabled={busy}>{busy?"Guardando…":"Guardar contacto"}</button></div></form></Modal>}
  </>;
 }
+/**
+ * Una celda que se edita en el lugar, como en una hoja de cálculo.
+ *
+ * Esta es la forma de editar de todo el módulo, y por eso vive suelta: el
+ * formato lo pone el sistema —dinero con dos decimales, días enteros, fechas—
+ * y el contenido lo pone la persona. Se hace clic, se escribe, se sale del
+ * campo y quedó guardado. No hay botón de «editar», no hay botón de «guardar»
+ * y no hay ventana que se abra encima.
+ *
+ * Vacío significa vacío, no cero. Un límite de crédito en blanco es «todavía
+ * no se ha hablado», que no es lo mismo que «no se le fía nada», y el sistema
+ * avisa distinto en cada caso.
+ */
+function Celda({valor,formato="texto",vacio="—",onGuardar,ancho}:{valor:string|number|null|undefined;formato?:"texto"|"parrafo"|"dinero"|"entero"|"fecha";vacio?:string;onGuardar:(v:string)=>Promise<void>;ancho?:number}){
+ const [editando,setEditando]=useState(false);
+ const [texto,setTexto]=useState("");
+ const [guardando,setGuardando]=useState(false);
+ const [error,setError]=useState("");
+
+ const crudo=()=>{
+  if(valor===null||valor===undefined||valor==="")return "";
+  if(formato==="dinero")return (Number(valor)/100).toFixed(2);
+  if(formato==="fecha")return new Date(String(valor)).toISOString().slice(0,10);
+  return String(valor);
+ };
+ const mostrado=()=>{
+  if(valor===null||valor===undefined||valor==="")return null;
+  if(formato==="dinero")return money(Number(valor));
+  if(formato==="entero")return String(valor);
+  if(formato==="fecha")return date(String(valor));
+  return String(valor);
+ };
+
+ async function terminar(){
+  if(guardando)return;
+  setGuardando(true);setError("");
+  try{ await onGuardar(texto.trim()); setEditando(false); }
+  catch(e){ setError((e as Error).message); }
+  finally{ setGuardando(false); }
+ }
+
+ if(!editando){
+  const v=mostrado();
+  return <button type="button" className={v?"c-celda":"c-celda vacia"} style={ancho?{minWidth:ancho}:undefined} onClick={()=>{setTexto(crudo());setError("");setEditando(true)}} title="Clic para editar">{v??vacio}</button>;
+ }
+
+ const comun={
+  autoFocus:true,
+  value:texto,
+  disabled:guardando,
+  onChange:(e:{target:{value:string}})=>setTexto(e.target.value),
+  onBlur:terminar,
+ };
+ return <span className="c-celda-edit" style={ancho?{minWidth:ancho}:undefined}>
+  {formato==="parrafo"
+   ? <textarea {...comun} rows={3} onKeyDown={e=>{if(e.key==="Escape"){e.preventDefault();setEditando(false)}}}/>
+   : <input {...comun} type={formato==="fecha"?"date":"text"} inputMode={formato==="dinero"||formato==="entero"?"decimal":undefined}
+      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();(e.target as HTMLInputElement).blur()}if(e.key==="Escape"){e.preventDefault();setEditando(false)}}}/>}
+  {error&&<small className="c-celda-error">{error}</small>}
+ </span>;
+}
+
+/**
+ * La parte de plata del expediente: crédito, precios propios y notas.
+ *
+ * Lo que no está acá, a propósito, es el saldo. El saldo no se escribe: se
+ * calcula sumando cargos y restando abonos, y ese módulo todavía no existe.
+ * Poner una casilla para teclearlo sería el día que el número deje de
+ * significar algo.
+ */
+function FichaFinanciera({cliente,recargarCliente}:{cliente:Customer;recargarCliente:()=>void}){
+ const precios=useData<Precio[]>("/customer-prices?customerId="+cliente.id);
+ const notas=useData<NotaPlata[]>("/customer-notes?customerId="+cliente.id);
+ const items=useData<Item[]>("/catalog-items");
+ const [nota,setNota]=useState("");
+ const [falla,setFalla]=useState("");
+
+ // Vacío borra el dato en vez de guardar un cero: son cosas distintas.
+ const guardarCliente=(campo:string,transformar:(v:string)=>number|null)=>async(v:string)=>{
+  await api("/customers/"+cliente.id,"PATCH",{[campo]:v===""?null:transformar(v)});
+  recargarCliente();
+ };
+ const enteroDe=(v:string)=>{const n=Number(v.replace(/[^\d-]/g,""));if(!Number.isFinite(n)||n<0)throw new Error("Escribí un número de días, por ejemplo 30");return Math.round(n)};
+
+ async function agregarNota(){
+  const cuerpo=nota.trim(); if(!cuerpo)return;
+  setFalla("");
+  try{ await api("/customer-notes","POST",{customerId:cliente.id,body:cuerpo}); setNota(""); notas.reload(); }
+  catch(e){ setFalla((e as Error).message) }
+ }
+ async function agregarPrecio(){
+  setFalla("");
+  try{ await api("/customer-prices","POST",{customerId:cliente.id,description:"Concepto nuevo",unitPriceCents:0}); precios.reload(); }
+  catch(e){ setFalla((e as Error).message) }
+ }
+
+ return <section className="c-card c-pad c-ficha">
+  <div className="c-section-head"><h2>Condiciones y plata</h2><span>Clic en cualquier dato para cambiarlo</span></div>
+
+  <div className="c-credito">
+   <div><span className="c-eyebrow">LÍMITE DE CRÉDITO</span>
+    <Celda valor={cliente.creditLimitCents} formato="dinero" vacio="Sin definir" ancho={120} onGuardar={guardarCliente("creditLimitCents",v=>cents(v))}/>
+    <small>En blanco es «no se ha hablado». Cero es «no se le fía».</small></div>
+   <div><span className="c-eyebrow">PLAZO DE PAGO</span>
+    <Celda valor={cliente.creditTermDays} formato="entero" vacio="Sin definir" ancho={80} onGuardar={guardarCliente("creditTermDays",enteroDe)}/>
+    <small>Días. El que sea: 15, 30, 45.</small></div>
+  </div>
+
+  <h3>Precios propios de este cliente</h3>
+  <p className="c-ficha-nota">Estos ganan sobre el catálogo al cotizar, y la cotización avisa de dónde salió el precio. Lo que se teclee a mano manda sobre los dos.</p>
+  <div className="c-scroll"><table><thead><tr><th>Producto del catálogo</th><th>Concepto</th><th className="c-num">Precio</th><th>Nota</th><th></th></tr></thead><tbody>
+   {precios.data?.map(pr=><tr key={pr.id}>
+    <td><select value={pr.catalogItemId??""} onChange={async e=>{const it=items.data?.find(v=>v.id===e.target.value);const cambio:Record<string,unknown>={catalogItemId:e.target.value||null};if(it&&pr.description==="Concepto nuevo")cambio.description=it.name;await api("/customer-prices/"+pr.id,"PATCH",cambio);precios.reload()}}><option value="">— suelto, no del catálogo —</option>{items.data?.map(it=><option key={it.id} value={it.id}>{it.code} · {it.name}</option>)}</select></td>
+    <td><Celda valor={pr.description} onGuardar={async v=>{if(!v)throw new Error("El concepto no puede quedar vacío.");await api("/customer-prices/"+pr.id,"PATCH",{description:v});precios.reload()}}/></td>
+    <td className="c-num"><Celda valor={pr.unitPriceCents} formato="dinero" ancho={90} onGuardar={async v=>{await api("/customer-prices/"+pr.id,"PATCH",{unitPriceCents:cents(v)});precios.reload()}}/></td>
+    <td><Celda valor={pr.notes} vacio="Agregar nota" onGuardar={async v=>{await api("/customer-prices/"+pr.id,"PATCH",{notes:v||null});precios.reload()}}/></td>
+    <td><button className="c-link" onClick={async()=>{await api("/customer-prices/"+pr.id,"DELETE");precios.reload()}}>Quitar</button></td>
+   </tr>)}
+  </tbody></table>
+  {precios.data?.length===0&&<p className="c-ficha-nota">Todavía no hay precios acordados con este cliente.</p>}</div>
+  <button className="c-secondary" onClick={agregarPrecio}>+ Agregar precio acordado</button>
+
+  <h3>Notas de plata</h3>
+  <div className="c-nota-nueva">
+   <textarea rows={2} value={nota} onChange={e=>setNota(e.target.value)} placeholder="Ej. Pidió prórroga hasta fin de mes. Paga siempre en efectivo."/>
+   <button className="c-secondary" onClick={agregarNota} disabled={!nota.trim()}>Anotar</button>
+  </div>
+  <ErrorBox message={falla||precios.error||notas.error}/>
+  <ul className="c-libreta">
+   {notas.data?.map(n=><li key={n.id}>
+    <Celda valor={n.notedOn} formato="fecha" ancho={110} onGuardar={async v=>{await api("/customer-notes/"+n.id,"PATCH",{notedOn:v});notas.reload()}}/>
+    <Celda valor={n.body} formato="parrafo" onGuardar={async v=>{if(!v)throw new Error("La nota no puede quedar vacía.");await api("/customer-notes/"+n.id,"PATCH",{body:v});notas.reload()}}/>
+    <button className="c-link" onClick={async()=>{await api("/customer-notes/"+n.id,"DELETE");notas.reload()}}>Quitar</button>
+   </li>)}
+  </ul>
+  {notas.data?.length===0&&<p className="c-ficha-nota">Sin notas todavía. Acá va lo que no cabe en un número.</p>}
+ </section>;
+}
+
 function CustomerDetail(){
  const {id}=useParams();const c=useData<Customer>("/customers/"+id);const q=useData<Quote[]>("/quotes?customerId="+id);
- return <><Link className="c-back" to="/comercial/clientes">← Clientes y prospectos</Link><Header title={c.data?.name??"Expediente"} subtitle="Información de contacto e historial de cotizaciones." action={<Link className="c-primary" to={"/comercial/cotizaciones/nueva?cliente="+id}>+ Preparar cotización</Link>}/><ErrorBox message={c.error||q.error}/>{c.data&&<div className="c-detail-grid"><aside className="c-card c-pad"><Badge status={c.data.stage}/><h3>Datos del contacto</h3><p>{c.data.phone||"Sin teléfono"}</p><p>{c.data.email||"Sin correo"}</p><p>{c.data.address||"Sin dirección"}</p><hr/><p>NIT: {c.data.nit||"—"}</p><p>NRC: {c.data.nrc||"—"}</p><h3>Seguimiento</h3><p className="c-pre">{c.data.notes||"Sin notas registradas."}</p></aside><section className="c-card c-pad"><h2>Cotizaciones</h2><QuoteTable quotes={q.data??[]} customers={c.data?[c.data]:[]}/>{q.data?.length===0&&<Empty title="Historial por comenzar">Las cotizaciones de este contacto aparecerán aquí.</Empty>}</section></div>}</>;
+ return <><Link className="c-back" to="/comercial/clientes">← Clientes y prospectos</Link><Header title={c.data?.name??"Expediente"} subtitle="Información de contacto, condiciones de pago e historial." action={<Link className="c-primary" to={"/comercial/cotizaciones/nueva?cliente="+id}>+ Preparar cotización</Link>}/><ErrorBox message={c.error||q.error}/>{c.data&&<div className="c-detail-grid"><aside className="c-card c-pad"><Badge status={c.data.stage}/><h3>Datos del contacto</h3><p>{c.data.phone||"Sin teléfono"}</p><p>{c.data.email||"Sin correo"}</p><p>{c.data.address||"Sin dirección"}</p><hr/><p>NIT: {c.data.nit||"—"}</p><p>NRC: {c.data.nrc||"—"}</p><h3>Seguimiento</h3><p className="c-pre">{c.data.notes||"Sin notas registradas."}</p></aside><div className="c-expediente"><FichaFinanciera cliente={c.data} recargarCliente={c.reload}/><section className="c-card c-pad"><h2>Cotizaciones</h2><QuoteTable quotes={q.data??[]} customers={c.data?[c.data]:[]}/>{q.data?.length===0&&<Empty title="Historial por comenzar">Las cotizaciones de este contacto aparecerán aquí.</Empty>}</section></div></div>}</>;
 }
 function Catalog(){
  const {data,error,reload}=useData<Item[]>("/catalog-items");const [search,setSearch]=useState("");const [editing,setEditing]=useState<Partial<Item>|null>(null);const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);
@@ -69,17 +208,41 @@ function QuoteEditor(){
  const navigate=useNavigate();
  const [renglones,setRenglones]=useState<Renglon[]>([{description:"",quantity:1,precio:"0.00"}]);
  const [tax,setTax]=useState(13);
+ // El cliente es estado, no `defaultValue`: la lista de clientes llega después
+ // del primer dibujado, y un `defaultValue` que apunta a una opción que todavía
+ // no existe deja el select en blanco. El formulario entonces no se enviaba y
+ // no explicaba por qué — el navegador bloquea en silencio un campo requerido
+ // que está vacío.
+ const [clienteId,setClienteId]=useState(()=>new URLSearchParams(location.hash.split("?")[1]).get("cliente")??"");
  const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);const [sembrado,setSembrado]=useState(false);
 
  // La cotización existente siembra el formulario una sola vez; después manda
  // lo que la persona esté escribiendo.
  useEffect(()=>{
   const q=existente.data; if(!q||sembrado) return;
-  setRenglones((q.lines??[]).map(l=>({catalogItemId:l.catalogItemId??undefined,description:l.description,quantity:l.quantity,precio:(l.unitPriceCents/100).toFixed(2)})));
+  setRenglones((q.lines??[]).map(l=>({catalogItemId:l.catalogItemId??undefined,description:l.description,quantity:l.quantity,precio:(l.unitPriceCents/100).toFixed(2),tocado:true})));
   setTax((q.taxRateMilli??0)/1000);
+  setClienteId(q.customerId);
   setSembrado(true);
  },[existente.data,sembrado]);
 
+ // Los precios que este cliente tiene acordados. Se aplican al elegir del
+ // catálogo y se dicen en voz alta, para que el total en vivo sea el de verdad
+ // y no una cifra que cambia recién al guardar.
+ const acuerdos=useData<Precio[]>(clienteId?"/customer-prices?customerId="+clienteId:"");
+ const acuerdoDe=(catalogItemId?:string)=>acuerdos.data?.find(a=>a.catalogItemId===catalogItemId);
+ // Los acuerdos del cliente llegan por la red, así que pueden aparecer después
+ // de que la persona ya eligió el producto. Cuando lleguen, corrigen los
+ // renglones que nadie escribió a mano — sin esto, elegir cliente y producto
+ // demasiado rápido dejaba el precio del catálogo sin decir una palabra.
+ useEffect(()=>{
+  if(!acuerdos.data) return;
+  setRenglones(old=>old.map(r=>{
+   if(r.tocado||!r.catalogItemId) return r;
+   const ac=acuerdos.data!.find(a=>a.catalogItemId===r.catalogItemId);
+   return ac?{...r,precio:(ac.unitPriceCents/100).toFixed(2)}:r;
+  }));
+ },[acuerdos.data]);
  const precios=renglones.map(r=>centsOrNull(r.precio));
  const subtotal=renglones.reduce((s,r,i)=>s+r.quantity*(precios[i]??0),0);
  const taxCents=Math.round(subtotal*tax/100);
@@ -99,21 +262,20 @@ function QuoteEditor(){
    const q=corrigiendo
     ? await api<Quote>("/quotes/"+id,"PATCH",cuerpo)
     : await api<Quote>("/quotes","POST",cuerpo);
-   navigate("/comercial/cotizaciones/"+q.id);
+   navigate("/comercial/cotizaciones/"+q.id,{state:{avisos:q.avisos??[]}});
   }catch(e){setFailure((e as Error).message)}finally{setBusy(false)}
  }
 
  const q=existente.data;
  if(corrigiendo&&!q) return <><ErrorBox message={existente.error}/>{!existente.error&&<p>Cargando la cotización…</p>}</>;
- const clientePorDefecto=q?q.customerId:new URLSearchParams(location.hash.split("?")[1]).get("cliente")??"";
 
  return <><Link className="c-back" to={q?"/comercial/cotizaciones/"+q.id:"/comercial/cotizaciones"}>← {q?"Volver a la cotización":"Cotizaciones"}</Link>
  <Header title={q?"Corregir "+number(q.number):"Nueva cotización"} subtitle={q?"Lo que cambies reemplaza a lo anterior. Queda registrado quién y cuándo.":"Precios y datos quedarán guardados con esta propuesta."}/>
  {q&&q.status!=="draft"&&<div className="c-aviso" role="status">Esta cotización ya está «{statuses[q.status]}». Se puede corregir igual, pero si el cliente ya recibió la anterior conviene volvérsela a enviar.</div>}
  <ErrorBox message={customers.error||items.error||profile.error}/>
- <form onSubmit={save} className="c-editor"><div><section className="c-card c-pad"><h2>01 · Cliente y proyecto</h2><div className="c-form-grid"><Field label="Cliente o prospecto" wide><select name="customerId" required defaultValue={clientePorDefecto}><option value="">Selecciona un contacto</option>{customers.data?.filter(c=>c.active||c.id===q?.customerId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Nombre del proyecto" wide><input name="description" defaultValue={q?.description??""} placeholder="Ej. Suministro de ladrillos · Residencial Las Palmas"/></Field><Field label="Lugar de entrega" wide><input name="workLocation" defaultValue={q?.workLocation??""} placeholder="Dirección de la obra o punto de retiro"/></Field><Field label="Vigencia (días)"><input name="validityDays" type="number" defaultValue={q?.validityDays??15} min={1} max={365} required/></Field></div>{customers.data?.length===0&&<p>Primero <Link to="/comercial/clientes">registra un contacto</Link>.</p>}{q&&q.status!=="draft"&&<p style={{fontSize:13}}>El cliente no se puede cambiar en una cotización que ya salió. Si está equivocado, archivala y creá una nueva.</p>}</section>
+ <form onSubmit={save} className="c-editor"><div><section className="c-card c-pad"><h2>01 · Cliente y proyecto</h2><div className="c-form-grid"><Field label="Cliente o prospecto" wide><select name="customerId" required value={clienteId} onChange={e=>setClienteId(e.target.value)}><option value="">Selecciona un contacto</option>{customers.data?.filter(c=>c.active||c.id===q?.customerId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Nombre del proyecto" wide><input name="description" defaultValue={q?.description??""} placeholder="Ej. Suministro de ladrillos · Residencial Las Palmas"/></Field><Field label="Lugar de entrega" wide><input name="workLocation" defaultValue={q?.workLocation??""} placeholder="Dirección de la obra o punto de retiro"/></Field><Field label="Vigencia (días)"><input name="validityDays" type="number" defaultValue={q?.validityDays??15} min={1} max={365} required/></Field></div>{customers.data?.length===0&&<p>Primero <Link to="/comercial/clientes">registra un contacto</Link>.</p>}{q&&q.status!=="draft"&&<p style={{fontSize:13}}>El cliente no se puede cambiar en una cotización que ya salió. Si está equivocado, archivala y creá una nueva.</p>}</section>
 
- <section className="c-card c-pad"><div className="c-section-head"><h2>02 · Productos y servicios</h2><span>{renglones.length} partidas</span></div>{renglones.map((r,i)=><div className="c-line-editor" key={i}><div className="c-line-top"><strong>Partida {i+1}</strong><button type="button" className="c-link" disabled={renglones.length===1} onClick={()=>setRenglones(renglones.filter((_,j)=>j!==i))}>Quitar</button></div><Field label="Seleccionar del catálogo"><select aria-label={"Producto partida "+(i+1)} value={r.catalogItemId??""} onChange={e=>{const it=items.data?.find(v=>v.id===e.target.value);change(i,it?{catalogItemId:it.id,description:it.name+" · "+it.unit,precio:(it.unitPriceCents/100).toFixed(2)}:{catalogItemId:undefined})}}><option value="">Concepto personalizado</option>{items.data?.filter(v=>v.active).map(it=><option key={it.id} value={it.id}>{it.code} · {it.name}</option>)}</select></Field><div className="c-form-grid"><Field label="Descripción" wide><input aria-label={"Descripción partida "+(i+1)} value={r.description} onChange={e=>change(i,{description:e.target.value})} required/></Field><Field label="Cantidad (unidades enteras)"><input aria-label={"Cantidad partida "+(i+1)} type="number" min={1} max={1000000} step={1} value={r.quantity} onChange={e=>change(i,{quantity:Number(e.target.value)})} required/></Field><Field label="Precio unitario (USD)"><input aria-label={"Precio partida "+(i+1)} type="text" inputMode="decimal" value={r.precio} onChange={e=>change(i,{precio:e.target.value})} required/></Field></div>{precios[i]===null&&r.precio.trim()!==""&&<p className="c-error" style={{margin:"0 0 10px"}}>No se entiende «{r.precio}» como precio. Escribí solo el número, por ejemplo 0.65</p>}<div className="c-line-total">{money(r.quantity*(precios[i]??0))}</div></div>)}<button type="button" className="c-secondary" onClick={()=>setRenglones([...renglones,{description:"",quantity:1,precio:"0.00"}])}>+ Agregar partida</button></section>
+ <section className="c-card c-pad"><div className="c-section-head"><h2>02 · Productos y servicios</h2><span>{renglones.length} partidas</span></div>{renglones.map((r,i)=><div className="c-line-editor" key={i}><div className="c-line-top"><strong>Partida {i+1}</strong><button type="button" className="c-link" disabled={renglones.length===1} onClick={()=>setRenglones(renglones.filter((_,j)=>j!==i))}>Quitar</button></div><Field label="Seleccionar del catálogo"><select aria-label={"Producto partida "+(i+1)} value={r.catalogItemId??""} onChange={e=>{const it=items.data?.find(v=>v.id===e.target.value);const ac=it?acuerdoDe(it.id):undefined;change(i,it?{catalogItemId:it.id,description:it.name+" · "+it.unit,precio:((ac?.unitPriceCents??it.unitPriceCents)/100).toFixed(2),tocado:false}:{catalogItemId:undefined,tocado:false})}}><option value="">Concepto personalizado</option>{items.data?.filter(v=>v.active).map(it=><option key={it.id} value={it.id}>{it.code} · {it.name}</option>)}</select></Field><div className="c-form-grid"><Field label="Descripción" wide><input aria-label={"Descripción partida "+(i+1)} value={r.description} onChange={e=>change(i,{description:e.target.value})} required/></Field><Field label="Cantidad (unidades enteras)"><input aria-label={"Cantidad partida "+(i+1)} type="number" min={1} max={1000000} step={1} value={r.quantity} onChange={e=>change(i,{quantity:Number(e.target.value)})} required/></Field><Field label="Precio unitario (USD)"><input aria-label={"Precio partida "+(i+1)} type="text" inputMode="decimal" value={r.precio} onChange={e=>change(i,{precio:e.target.value,tocado:true})} required/></Field></div>{precios[i]===null&&r.precio.trim()!==""&&<p className="c-error" style={{margin:"0 0 10px"}}>No se entiende «{r.precio}» como precio. Escribí solo el número, por ejemplo 0.65</p>}{(()=>{const ac=acuerdoDe(r.catalogItemId);const cat=items.data?.find(v=>v.id===r.catalogItemId);return ac&&cat&&ac.unitPriceCents!==cat.unitPriceCents?<p className="c-ficha-nota" style={{margin:"0 0 10px"}}>Precio acordado con este cliente: {money(ac.unitPriceCents)} · catálogo {money(cat.unitPriceCents)}</p>:null})()}<div className="c-line-total">{money(r.quantity*(precios[i]??0))}</div></div>)}<button type="button" className="c-secondary" onClick={()=>setRenglones([...renglones,{description:"",quantity:1,precio:"0.00"}])}>+ Agregar partida</button></section>
 
  <section className="c-card c-pad"><h2>03 · Condiciones</h2><Field label="Condiciones de pago y entrega">{(profile.data||q)&&<textarea name="terms" rows={4} defaultValue={q?(q.terms??""):profile.data?.terms} placeholder="Forma de pago, entrega, transporte y exclusiones…"/>}</Field><Field label="Observaciones de la propuesta"><textarea name="notes" rows={2} defaultValue={q?.notes??""}/></Field></section></div>
 
@@ -132,8 +294,9 @@ const ACCIONES:Record<string,string>={draft:"Volver a borrador",sent:"Marcar com
 const CURSO_NATURAL:Record<string,string[]>={draft:["sent"],sent:["accepted","rejected","expired"],accepted:[],rejected:[],expired:[]};
 function QuoteDetail(){
  const {id}=useParams();const q=useData<Quote>("/quotes/"+id);const navigate=useNavigate();
- const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);const [aviso,setAviso]=useState("");const [confirmando,setConfirmando]=useState(false);
- async function status(value:string){if(busy)return;setBusy(true);setFailure("");try{const r=await api<Quote&{aviso?:string|null}>("/quotes/"+id+"/status","PATCH",{status:value});setAviso(r.aviso??"");q.reload()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
+ const recienGuardado=(useLocation().state as {avisos?:string[]}|null)?.avisos??[];
+ const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);const [avisos,setAvisos]=useState<string[]>(recienGuardado);const [confirmando,setConfirmando]=useState(false);
+ async function status(value:string){if(busy)return;setBusy(true);setFailure("");try{const r=await api<Quote&{avisos?:string[]}>("/quotes/"+id+"/status","PATCH",{status:value});setAvisos(r.avisos??[]);q.reload()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
  // Sin setBusy(false) al salir bien: la pantalla ya se fue.
  async function archivar(){if(busy)return;setBusy(true);setFailure("");try{await api("/quotes/"+id,"DELETE");navigate("/comercial/cotizaciones")}catch(e){setFailure((e as Error).message);setBusy(false);setConfirmando(false)}}
  const quote=q.data;if(!quote)return <><ErrorBox message={q.error}/>{!q.error&&<p>Cargando cotización…</p>}</>;
@@ -141,7 +304,7 @@ function QuoteDetail(){
  const opciones=[...naturales,...Object.keys(ACCIONES).filter(k=>k!==quote.status&&!naturales.includes(k))];
  const customer=quote.customerSnapshot;const business=quote.businessSnapshot;
  const expires=new Date(quote.issueDate);expires.setUTCDate(expires.getUTCDate()+quote.validityDays);
- return <><div className="c-no-print"><Link className="c-back" to="/comercial/cotizaciones">← Cotizaciones</Link><Header title={number(quote.number)} subtitle={quote.description||"Propuesta comercial"} action={<button className="c-primary" onClick={()=>window.print()}>Imprimir / guardar PDF</button>}/><div className="c-statusbar"><Badge status={quote.status}/><Link className="c-primary" to={"/comercial/cotizaciones/"+quote.id+"/editar"}>Corregir</Link>{opciones.map(k=><button key={k} className={naturales.length===1&&naturales[0]===k?"c-primary":""} disabled={busy} onClick={()=>status(k)}>{ACCIONES[k]}</button>)}{confirmando?<span className="c-confirmar">¿Archivar {number(quote.number)}?<button disabled={busy} onClick={archivar}>Sí, archivar</button><button disabled={busy} onClick={()=>setConfirmando(false)}>No</button></span>:<button disabled={busy} onClick={()=>setConfirmando(true)}>Archivar</button>}<span>El envío al cliente se realiza fuera del sistema.</span></div>{aviso&&<div className="c-aviso" role="status">{aviso}</div>}<ErrorBox message={failure}/></div>
+ return <><div className="c-no-print"><Link className="c-back" to="/comercial/cotizaciones">← Cotizaciones</Link><Header title={number(quote.number)} subtitle={quote.description||"Propuesta comercial"} action={<button className="c-primary" onClick={()=>window.print()}>Imprimir / guardar PDF</button>}/><div className="c-statusbar"><Badge status={quote.status}/><Link className="c-primary" to={"/comercial/cotizaciones/"+quote.id+"/editar"}>Corregir</Link>{opciones.map(k=><button key={k} className={naturales.length===1&&naturales[0]===k?"c-primary":""} disabled={busy} onClick={()=>status(k)}>{ACCIONES[k]}</button>)}{confirmando?<span className="c-confirmar">¿Archivar {number(quote.number)}?<button disabled={busy} onClick={archivar}>Sí, archivar</button><button disabled={busy} onClick={()=>setConfirmando(false)}>No</button></span>:<button disabled={busy} onClick={()=>setConfirmando(true)}>Archivar</button>}<span>El envío al cliente se realiza fuera del sistema.</span></div>{avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}<ErrorBox message={failure}/></div>
  <article className="c-paper"><div className="c-paper-top"><div><span className="c-paper-mark">▥</span><h2>{business?.name??"Empresa · documento anterior"}</h2><p>{business?.address}</p><p>{[business?.phone,business?.email].filter(Boolean).join(" · ")}</p>{business?.nit&&<p>NIT {business.nit}</p>}</div><div className="c-paper-number"><span>COTIZACIÓN</span><h2>{number(quote.number)}</h2><p>Emisión: {date(quote.issueDate)}</p><p>Válida hasta: {date(expires.toISOString())}</p><Badge status={quote.status}/></div></div>
  <div className="c-paper-client"><div><span className="c-eyebrow">PREPARADA PARA</span><h3>{customer?.name??"Cliente · documento anterior sin copia histórica"}</h3><p>{customer?.address}</p><p>{[customer?.phone,customer?.email].filter(Boolean).join(" · ")}</p>{customer?.nit&&<p>NIT: {customer.nit}</p>}</div><div><span className="c-eyebrow">PROYECTO / ENTREGA</span><h3>{quote.description||"Suministro de productos y servicios"}</h3><p>{quote.workLocation||"Por acordar"}</p></div></div>
  <table className="c-paper-lines"><thead><tr><th>Descripción</th><th className="c-num">Cantidad</th><th className="c-num">Precio unitario</th><th className="c-num">Importe</th></tr></thead><tbody>{quote.lines?.map((l,i)=><tr key={i}><td>{l.description}</td><td className="c-num">{l.quantity}</td><td className="c-num">{money(l.unitPriceCents)}</td><td className="c-num">{money(l.subtotalCents??l.quantity*l.unitPriceCents)}</td></tr>)}</tbody></table>

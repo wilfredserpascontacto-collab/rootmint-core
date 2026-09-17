@@ -1,10 +1,12 @@
-export type Customer = { id:string; name:string; type:"person"|"company"; stage:"prospect"|"customer"; phone?:string; email?:string; address?:string; nit?:string; nrc?:string; notes?:string; active:boolean };
+export type Precio = { id:string; customerId:string; catalogItemId?:string|null; description:string; unitPriceCents:number; unit?:string|null; notes?:string|null };
+export type NotaPlata = { id:string; customerId:string; notedOn:string; body:string };
+export type Customer = { id:string; name:string; creditLimitCents?:number|null; creditTermDays?:number|null; type:"person"|"company"; stage:"prospect"|"customer"; phone?:string; email?:string; address?:string; nit?:string; nrc?:string; notes?:string; active:boolean };
 export type Item = { id:string; name:string; code:string; type:"product"|"service"; unit:string; unitPriceCents:number; category?:string; active:boolean };
 export type Profile = { name:string; phone?:string; email?:string; address?:string; nit?:string; terms?:string };
 export type Line = { catalogItemId?:string|null; description:string; quantity:number; unitPriceCents:number; subtotalCents?:number };
 /** El renglón mientras se edita: el precio vive como texto para no perder lo que se teclea. */
-export type Renglon = { catalogItemId?:string; description:string; quantity:number; precio:string };
-export type Quote = { id:string; number:number; customerId:string; issueDate:string; validityDays:number; status:string; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli?:number; description?:string; workLocation?:string; terms?:string; notes?:string; contactId?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; aviso?:string|null };
+export type Renglon = { catalogItemId?:string; description:string; quantity:number; precio:string; tocado?:boolean };
+export type Quote = { id:string; number:number; customerId:string; issueDate:string; validityDays:number; status:string; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli?:number; description?:string; workLocation?:string; terms?:string; notes?:string; contactId?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
 export async function api<T>(path:string, method="GET", body?:unknown):Promise<T> {
  // La cabecera de JSON solo cuando de verdad viaja un JSON. Anunciarla con el
  // cuerpo vacío —lo que pasa en todo DELETE— hace que Fastify conteste 400

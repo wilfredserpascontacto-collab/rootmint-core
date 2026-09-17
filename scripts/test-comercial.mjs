@@ -29,7 +29,7 @@ try {
   assert.equal(editada.subtotalCents,5000);
   assert.equal(editada.taxCents,650,'conserva el 13% sin que se lo vuelvan a mandar');
   assert.equal(editada.totalCents,5650);
-  assert.equal(editada.aviso,null,'corregir un borrador no necesita aviso');
+  assert.deepEqual(editada.avisos,[],'corregir un borrador no necesita aviso');
   // La partida vieja no se borra, se da de baja: el detalle solo trae la nueva.
   const releida = await request('GET','/quotes/'+q.id);
   assert.equal(releida.lines.length,1);
@@ -45,20 +45,52 @@ try {
   assert.equal(reasignada.customerSnapshot.name,'Cliente equivocado');
   await request('PATCH','/quotes/'+q.id,{customerId:c.id});
 
+  // --- La ficha financiera del cliente ------------------------------------
+  await request('PATCH','/customers/'+c.id,{creditLimitCents:10000,creditTermDays:45});
+  const ficha = await request('GET','/customers/'+c.id);
+  assert.equal(ficha.creditLimitCents,10000);
+  assert.equal(ficha.creditTermDays,45);
+  // Un precio propio, más barato que los 95 del catálogo.
+  const precio = await request('POST','/customer-prices',{customerId:c.id,catalogItemId:p.id,unitPriceCents:58},201);
+  assert.equal(precio.description,'Ladrillo prueba','el nombre se toma del catálogo si no lo escriben');
+  // Un precio suelto sí necesita nombre: sin producto y sin descripción no sirve a nadie.
+  await request('POST','/customer-prices',{customerId:c.id,unitPriceCents:100},400);
+  // Al cotizar gana el acuerdo, y el sistema dice de dónde salió el precio.
+  const conAcuerdo = await request('POST','/quotes',{customerId:c.id,taxRatePercent:0,lines:[{catalogItemId:p.id,quantity:100}]},201);
+  assert.equal(conAcuerdo.lines[0].unitPriceCents,58);
+  assert.equal(conAcuerdo.subtotalCents,5800);
+  assert.match(conAcuerdo.avisos.join(' '),/precio acordado/);
+  // Pero lo que se teclea a mano manda sobre el acuerdo.
+  const aMano = await request('POST','/quotes',{customerId:c.id,taxRatePercent:0,lines:[{catalogItemId:p.id,quantity:100,unitPriceCents:70}]},201);
+  assert.equal(aMano.lines[0].unitPriceCents,70);
+  // Pasarse del límite avisa y no impide.
+  const pasada = await request('POST','/quotes',{customerId:c.id,taxRatePercent:0,lines:[{catalogItemId:p.id,quantity:5000}]},201);
+  assert.match(pasada.avisos.join(' '),/límite de crédito/);
+  assert.equal(pasada.status,'draft','avisar no es impedir');
+  // Notas de plata: se apilan con fecha, se corrigen y se dan de baja.
+  const n1 = await request('POST','/customer-notes',{customerId:c.id,body:'Pidio prorroga hasta fin de mes'},201);
+  await request('POST','/customer-notes',{customerId:c.id,body:'Abono parcial en efectivo',notedOn:'2026-01-15'},201);
+  const notas = await request('GET','/customer-notes?customerId='+c.id);
+  assert.equal(notas.length,2);
+  assert.equal(notas[0].id,n1.id,'la más reciente va primero');
+  await request('PATCH','/customer-notes/'+n1.id,{body:'Pidio prorroga hasta el 5'});
+  await request('DELETE','/customer-notes/'+n1.id,undefined,204);
+  assert.equal((await request('GET','/customer-notes?customerId='+c.id)).length,1);
+
   // Ningún estado es una puerta de un solo sentido: el que se equivoca de
   // botón tiene que poder deshacerlo, y el que va por el camino natural no
   // tiene que ver avisos que no le hacen falta.
   const emitida=await request('PATCH','/quotes/'+q.id+'/status',{status:'sent'});
-  assert.equal(emitida.aviso,null,'el curso natural no debe avisar');
+  assert.deepEqual(emitida.avisos,[],'el curso natural no debe avisar');
   // Ya emitida y aun así corregible: avisa, no impide.
   const tocadaEmitida = await request('PATCH','/quotes/'+q.id,{description:'Proyecto corregido despues de emitir'});
-  assert.match(tocadaEmitida.aviso,/ya está «Emitida»/,'corregir algo emitido tiene que avisar');
+  assert.match(tocadaEmitida.avisos[0],/ya está «Emitida»/,'corregir algo emitido tiene que avisar');
   // Pero el cliente ya no: sería otro documento con el mismo número.
   await request('PATCH','/quotes/'+q.id,{customerId:otro.id},409);
   await request('PATCH','/quotes/'+q.id+'/status',{status:'accepted'});
   const corregida=await request('PATCH','/quotes/'+q.id+'/status',{status:'draft'});
   assert.equal(corregida.status,'draft');
-  assert.match(corregida.aviso,/corrigió/,'volver atrás debe avisar sin impedir');
+  assert.match(corregida.avisos[0],/corrigió/,'volver atrás debe avisar sin impedir');
   // Y una cotización ya emitida al cliente equivocado se puede archivar.
   await request('PATCH','/quotes/'+q.id+'/status',{status:'sent'});
   await request('DELETE','/quotes/'+q.id,undefined,204);
@@ -74,5 +106,5 @@ try {
   await request('DELETE','/quotes/'+parallel[0].id,undefined,204);
   await request('GET','/quotes/'+parallel[0].id,undefined,404);
   await request('GET','/quotes/missing-route/test',undefined,404);
-  console.log('PASA: totales, corrección de contenido con recálculo, copias históricas, etapas, corrección de estado con aviso, archivado en cualquier estado, desbordamiento, entradas inválidas, catálogo activo, correlativos en paralelo, baja lógica y 404 de la API.');
+  console.log('PASA: totales, ficha financiera del cliente, precio acordado que gana al catálogo, aviso de crédito, notas con fecha, corrección de contenido con recálculo, copias históricas, etapas, corrección de estado con aviso, archivado en cualquier estado, desbordamiento, entradas inválidas, catálogo activo, correlativos en paralelo, baja lógica y 404 de la API.');
 } finally { await app.close();await pool.end(); }

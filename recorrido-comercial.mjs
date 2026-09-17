@@ -7,7 +7,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = "http://127.0.0.1:4310";
+const BASE = process.env.BASE ?? "http://127.0.0.1:4310";
 const errores = [];
 const pasos = [];
 const SUF = String(Date.now()).slice(-5);
@@ -100,7 +100,7 @@ if (!(await volver.isVisible().catch(() => false))) {
 } else {
   await volver.click();
   await p.waitForTimeout(700);
-  const aviso = await p.locator(".c-aviso").first().innerText().catch(() => "");
+  const aviso = await p.locator(".c-avisos").first().innerText().catch(() => "");
   if (!/corrigió/i.test(aviso)) errores.push(`estado: volver atrás no avisó («${aviso}»)`);
   else paso(`estado · aviso: «${aviso}»`);
   if (!(await p.locator(".c-badge").first().innerText()).match(/Borrador/)) {
@@ -124,6 +124,72 @@ if (!/#\/comercial\/cotizaciones$/.test(p.url())) {
 const quedan = await p.locator("table tbody tr").count();
 paso(`archivado · quedan ${quedan} cotizaciones en la lista`);
 await foto("E-lista");
+
+// --- 4b. La ficha financiera, editada a punta de clics ---------------------
+await ir("/comercial/clientes/" + cliente.id);
+const celdaLimite = p.locator(".c-credito > div").first().locator(".c-celda");
+if (!(await celdaLimite.isVisible().catch(() => false))) {
+  errores.push("ficha: no aparece el límite de crédito en el expediente del cliente");
+} else {
+  await celdaLimite.click();
+  // Pegado de una planilla, con coma de miles.
+  await p.locator(".c-credito input").first().fill("1,200");
+  await p.keyboard.press("Enter");
+  await p.waitForTimeout(800);
+  const limite = await p.locator(".c-credito > div").first().locator(".c-celda").innerText();
+  if (!/1,200\.00/.test(limite)) errores.push(`ficha: el límite quedó en "${limite}", se esperaba $1,200.00`);
+  else paso(`ficha · límite de crédito guardado con un clic: ${limite}`);
+}
+// El plazo, un número libre de días.
+await p.locator(".c-credito > div").nth(1).locator(".c-celda").click();
+await p.locator(".c-credito input").first().fill("45");
+await p.keyboard.press("Enter");
+await p.waitForTimeout(700);
+const plazo = await p.locator(".c-credito > div").nth(1).locator(".c-celda").innerText();
+if (plazo.trim() !== "45") errores.push(`ficha: el plazo quedó en "${plazo}"`);
+else paso("ficha · plazo de 45 días");
+await foto("G-ficha-credito");
+
+// Un precio propio, más barato que el catálogo.
+await p.getByRole("button", { name: "+ Agregar precio acordado" }).click();
+await p.waitForTimeout(700);
+await p.locator(".c-ficha tbody tr").first().locator("select").selectOption({ index: 1 });
+await p.waitForTimeout(600);
+await p.locator(".c-ficha tbody tr").first().locator(".c-num .c-celda").click();
+await p.locator(".c-ficha tbody input").first().fill("0.58");
+await p.keyboard.press("Enter");
+await p.waitForTimeout(800);
+const precioPropio = await p.locator(".c-ficha tbody tr").first().locator(".c-num .c-celda").innerText();
+if (!/0\.58/.test(precioPropio)) errores.push(`ficha: el precio propio quedó en "${precioPropio}"`);
+else paso(`ficha · precio acordado con este cliente: ${precioPropio}`);
+
+// Una nota de plata.
+await p.locator(".c-nota-nueva textarea").fill("Pidio prorroga hasta fin de mes");
+await p.getByRole("button", { name: "Anotar" }).click();
+await p.waitForTimeout(800);
+const libreta = await p.locator(".c-libreta li").count();
+if (libreta < 1) errores.push("ficha: la nota de plata no se guardó");
+else paso(`ficha · ${libreta} nota de plata en la libreta`);
+await foto("H-ficha-precios-notas");
+
+// --- 4c. Y que la cotización lo use ----------------------------------------
+await ir("/comercial/cotizaciones/nueva");
+await p.getByLabel("Cliente o prospecto").selectOption({ label: `Constructora Serpas ${SUF}` });
+await p.getByLabel("Producto partida 1").selectOption({ index: 1 });
+await p.getByLabel("Cantidad partida 1").fill("5000");
+await p.waitForTimeout(400);
+await p.getByRole("button", { name: "Guardar cotización" }).click();
+await p.waitForURL(/#\/comercial\/cotizaciones\/[0-9a-f-]{36}$/, { timeout: 8000 }).catch(() => {});
+await p.waitForTimeout(800);
+const textoAvisos = await p.locator(".c-avisos").innerText().catch(() => "");
+if (!/precio acordado/i.test(textoAvisos)) errores.push(`cotización: no avisó que usó el precio acordado («${textoAvisos.slice(0, 80)}»)`);
+else paso("cotización · avisa que tomó el precio acordado y no el del catálogo");
+if (!/límite de crédito/i.test(textoAvisos)) errores.push("cotización: no avisó que se pasa del límite de crédito");
+else paso("cotización · avisa que pasa el límite, y se guardó igual");
+const totalAcordado = await p.locator(".c-paper-totals .c-grand dd").first().innerText().catch(() => "");
+if (!/3,277\.00/.test(totalAcordado)) errores.push(`cotización: el total con precio acordado dio "${totalAcordado}", se esperaba $3,277.00`);
+else paso(`cotización · 5000 × $0.58 + 13% = ${totalAcordado}`);
+await foto("I-cotizacion-con-acuerdo");
 
 // --- 5. La pantalla angosta ----------------------------------------------
 await p.setViewportSize({ width: 390, height: 844 });

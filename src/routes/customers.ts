@@ -19,6 +19,9 @@ const createSchema = z.object({
   municipality: z.string().optional(),
   department: z.string().optional(),
   notes: z.string().optional(),
+  // Nulo a propósito: «todavía no se ha hablado» no es lo mismo que cero.
+  creditLimitCents: z.number().int().nonnegative().max(2_000_000_000).nullable().optional(),
+  creditTermDays: z.number().int().nonnegative().max(3650).nullable().optional(),
 });
 
 const updateSchema = createSchema.partial().extend({

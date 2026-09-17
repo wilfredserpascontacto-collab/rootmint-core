@@ -7,3 +7,27 @@
 #commercial .c-aviso{background:#f9f2e4;border:1px solid #e4d2ae;color:#7d6330;padding:12px 16px;margin:15px 0;border-radius:5px;font-size:14px}
 #commercial .c-confirmar{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#7d6330;background:#f9f2e4;border:1px solid #e4d2ae;border-radius:6px;padding:4px 6px 4px 12px}
 #commercial .c-confirmar button{min-height:32px;padding:5px 11px;font-size:13px}
+
+/* --- La celda editable, y la ficha financiera del cliente ---------------- */
+#commercial .c-celda{background:none;border:1px solid transparent;border-radius:4px;padding:4px 7px;min-height:auto;font-weight:400;text-align:left;justify-content:flex-start;white-space:pre-wrap;color:var(--ink);font-size:14px}
+#commercial .c-celda:hover{border-color:#ccd3c9;background:#fbfcf9}
+#commercial .c-celda.vacia{color:#98a294;font-style:italic}
+#commercial .c-celda-edit{display:inline-flex;flex-direction:column;gap:4px;width:100%}
+#commercial .c-celda-edit input,#commercial .c-celda-edit textarea{padding:4px 7px;font-size:14px}
+#commercial .c-celda-error{color:#9a3b25;font-size:12px;margin:0}
+#commercial .c-expediente{display:flex;flex-direction:column;gap:24px;min-width:0}
+#commercial .c-ficha h3{margin-top:26px}
+#commercial .c-ficha-nota{font-size:13px;color:var(--muted);margin:6px 0 12px;max-width:70ch}
+#commercial .c-credito{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;margin:20px 0 4px;padding:18px;background:#f8f9f5;border:1px solid #e4e8dd;border-radius:6px}
+#commercial .c-credito .c-eyebrow{margin-bottom:4px}
+#commercial .c-credito .c-celda,#commercial .c-credito .c-celda-edit{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+#commercial .c-credito small{display:block;margin-top:6px;font-size:12px;color:var(--muted)}
+#commercial .c-nota-nueva{display:flex;gap:10px;align-items:flex-start;margin:10px 0 18px}
+#commercial .c-nota-nueva textarea{flex:1}
+#commercial .c-libreta{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+#commercial .c-libreta li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:start;padding:12px 0;border-bottom:1px solid #eef0e9}
+#commercial .c-libreta li:last-child{border-bottom:0}
+#commercial .c-libreta .c-celda{font-size:14px}
+#commercial .c-avisos{list-style:none;margin:15px 0;padding:0;display:flex;flex-direction:column;gap:8px}
+#commercial .c-avisos li{background:#f9f2e4;border:1px solid #e4d2ae;color:#7d6330;padding:11px 15px;border-radius:5px;font-size:14px}
+@media (max-width:760px){#commercial .c-detail-grid{grid-template-columns:minmax(0,1fr)}#commercial .c-libreta li{grid-template-columns:minmax(0,1fr)}}
