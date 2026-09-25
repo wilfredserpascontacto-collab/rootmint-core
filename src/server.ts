@@ -3,8 +3,10 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
 import estaticos from "@fastify/static";
 import { ZodError } from "zod";
+import { authRoutes } from "./routes/auth.js";
 import { usersRoutes } from "./routes/users.js";
 import { customersRoutes } from "./routes/customers.js";
 import { contactsRoutes } from "./routes/contacts.js";
@@ -15,11 +17,86 @@ import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
 import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
 import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
+import { quienViene } from "./lib/auth.js";
 
 export async function buildServer() {
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: true });
+  /**
+   * De donde se aceptan peticiones.
+   *
+   * En produccion la interfaz se sirve desde este mismo servidor, asi que no
+   * hace falta CORS para nada. La lista existe para el desarrollo, donde Vite
+   * corre en otro puerto. Antes esto era `origin: true`, que acepta a
+   * cualquiera; con cookies de sesion eso significaria que una pagina ajena
+   * puede hacer peticiones en nombre de quien tenga la sesion abierta.
+   */
+  const origenes = (process.env.ROOTMINT_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  await app.register(cors, { origin: origenes, credentials: true });
+
+  await app.register(cookie);
+
+  /**
+   * La puerta.
+   *
+   * Todo lo que no este en la lista de abajo exige sesion. Es a proposito que
+   * la regla sea "cerrado salvo que se diga lo contrario" y no al reves: con
+   * la lista invertida, cada ruta nueva que alguien agregue nace abierta y
+   * nadie se entera hasta que es tarde.
+   *
+   * Hasta hoy no habia ninguna verificacion: quien llamaba decia quien era en
+   * un encabezado que se escribia solo, y la API completa —clientes, precios
+   * acordados, limites de credito— estaba a la vista de cualquiera con la
+   * direccion.
+   */
+  const ABIERTAS = [
+    /^\/health$/,
+    /^\/auth\/(me|entrar|salir|pin|planta|hay-alguien|primera-duena)(\?|$)/,
+  ];
+
+  app.addHook("onRequest", async (req, reply) => {
+    const url = req.raw.url ?? "";
+
+    // Los archivos de la interfaz se sirven sin sesion: son el HTML y el
+    // JavaScript de la propia pantalla de entrada. No llevan datos.
+    const esApi = /^\/(bloques|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|auth|health)(\/|\?|$)/.test(url);
+    if (!esApi) return;
+
+    req.quien = (await quienViene(req)) ?? undefined;
+
+    if (ABIERTAS.some((r) => r.test(url))) return;
+    if (!req.quien) return reply.code(401).send({ error: "Hay que entrar primero." });
+
+    /**
+     * Quien solo mira, solo mira. Se corta aca y no en cada ruta: una regla
+     * en un solo lugar no se olvida al agregar la ruta numero treinta.
+     */
+    if (req.quien.role === "viewer" && req.method !== "GET") {
+      return reply.code(403).send({
+        error: "Tu cuenta es de solo lectura: podes ver todo, pero no cambiar nada.",
+      });
+    }
+
+    /** Las cuentas se administran desde la cuenta de una duena. */
+    if (/^\/users(\/|\?|$)/.test(url) && req.quien.role !== "owner") {
+      return reply.code(403).send({ error: "Solo una duena puede administrar las cuentas." });
+    }
+
+    /**
+     * Precios acordados y credito son decisiones de duena, no de operacion.
+     * Un empleado cotiza, factura y entrega; lo que se le cobra distinto a un
+     * cliente y cuanto se le fia se decide arriba.
+     */
+    const tocaPlata = /^\/customer-prices(\/|\?|$)/.test(url);
+    if (tocaPlata && req.method !== "GET" && req.quien.role !== "owner") {
+      return reply.code(403).send({
+        error: "Los precios acordados con un cliente los cambia una duena.",
+      });
+    }
+  });
 
   /**
    * Los nombres de las columnas únicas, en castellano.
@@ -94,6 +171,7 @@ export async function buildServer() {
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  await app.register(authRoutes);
   await app.register(usersRoutes);
   await app.register(customersRoutes);
   await app.register(contactsRoutes);
@@ -135,7 +213,7 @@ export async function buildServer() {
      */
     app.setNotFoundHandler((req, reply) => {
       const url = req.raw.url ?? "";
-      const esApi = /^\/(bloques|health|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes)(\/|\?|$)/.test(url);
+      const esApi = /^\/(bloques|health|auth|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes)(\/|\?|$)/.test(url);
       const esAsset = url.startsWith("/assets/") || /\.[a-z0-9]{2,5}(\?|$)/i.test(url);
       if (esApi || esAsset) {
         return reply.code(404).send({ error: "No encontrado" });

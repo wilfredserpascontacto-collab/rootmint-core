@@ -9,10 +9,29 @@ import Mantenimiento from "./pantallas/Mantenimiento";
 import Ajustes from "./pantallas/Ajustes";
 import Catalogo from "./pantallas/Catalogo";
 import Telemetria from "./comp/Telemetria";
+import Acceso from "./acceso/Acceso";
+import { NOMBRE_ROL, salir, useSesion } from "./acceso/sesion";
 
 export default function App() {
   const location = useLocation();
-  if (location.pathname.startsWith("/comercial")) return <Routes><Route path="/comercial/*" element={<Comercial />} /></Routes>;
+  const { estado, revisar } = useSesion();
+
+  /**
+   * Nada se pinta antes de saber quién está adentro.
+   *
+   * Ni siquiera un esqueleto de la aplicación: si se mostrara la pantalla y
+   * los datos llegaran después, cada recarga daría un parpadeo con la forma
+   * del sistema para quien no tiene por qué verla. Se espera, y se espera
+   * poco: es una sola pregunta al servidor.
+   */
+  if (estado.fase === "mirando") return <div className="cargando">Un momento…</div>;
+  if (estado.fase === "afuera") return <Acceso alEntrar={() => void revisar()} />;
+
+  const quien = <Quien persona={estado.persona} alSalir={() => void revisar()} />;
+
+  if (location.pathname.startsWith("/comercial")) {
+    return <Routes><Route path="/comercial/*" element={<Comercial quien={quien} />} /></Routes>;
+  }
   return (
     <div className="app">
       <header className="barra">
@@ -31,6 +50,7 @@ export default function App() {
           <NavLink to="/catalogo" className={({ isActive }) => (isActive ? "activo" : "")}>Catálogo</NavLink>
           <NavLink to="/ajustes" className={({ isActive }) => (isActive ? "activo" : "")}>Ajustes</NavLink>
         </nav>
+        {quien}
       </header>
 
       <Routes>
@@ -47,6 +67,32 @@ export default function App() {
       </Routes>
 
       <Telemetria />
+    </div>
+  );
+}
+
+/** Quién está adentro y cómo salir. Va arriba a la derecha, en toda pantalla. */
+function Quien({
+  persona,
+  alSalir,
+}: {
+  persona: { name: string; role: "owner" | "staff" | "viewer" };
+  alSalir: () => void;
+}) {
+  return (
+    <div className="quien">
+      <span>
+        <strong>{persona.name}</strong> · {NOMBRE_ROL[persona.role]}
+      </span>
+      <button
+        type="button"
+        onClick={async () => {
+          await salir().catch(() => {});
+          alSalir();
+        }}
+      >
+        Salir
+      </button>
     </div>
   );
 }

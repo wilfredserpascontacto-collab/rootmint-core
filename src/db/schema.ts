@@ -60,7 +60,58 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: userRoleEnum("role").notNull().default("staff"),
   active: boolean("active").notNull().default(true),
+  /**
+   * PIN corto para entrar desde la planta, cifrado igual que la contraseña.
+   *
+   * En la planta hay una tablet que pasa de mano en mano y manos que vienen
+   * de la mezcladora. Escribir un correo y una contraseña ahí no es una
+   * molestia menor: es la razón por la que la gente termina dejando la sesión
+   * de otro abierta. Quien tiene PIN entra tocando su nombre y cuatro
+   * dígitos. Nulo en quien no trabaja en planta.
+   */
+  pinHash: text("pin_hash"),
+  /**
+   * Intentos fallidos seguidos, y hasta cuándo está trabado.
+   *
+   * Un PIN de cuatro dígitos son diez mil combinaciones: a mano no se
+   * adivina, pero un programa las prueba todas en un rato. Tras varios
+   * fallos la cuenta se traba unos minutos, que es lo que vuelve inútil
+   * probar a ciegas sin castigar a quien simplemente se equivocó.
+   */
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
   ...timestamps,
+});
+
+/**
+ * Sesiones abiertas.
+ *
+ * Se decidió que la sesión dure hasta que la persona cierre: Amada y María Paz
+ * entran desde su teléfono y volver a teclear la contraseña cada mañana es la
+ * clase de fricción que hace que un sistema se abandone. La contrapartida es
+ * que una sesión olvidada en un aparato ajeno queda viva, y por eso existe
+ * esta tabla en vez de un token que el servidor no puede desdecir: aquí una
+ * sesión se revoca y deja de servir en el acto.
+ *
+ * De la llave solo se guarda su huella (sha256), nunca la llave misma. Si
+ * alguien llegara a leer esta tabla no podría entrar con lo que encuentre,
+ * igual que con las contraseñas.
+ */
+export const sessions = pgTable("sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  /** Para que la dueña reconozca el aparato al ver sus sesiones abiertas. */
+  userAgent: text("user_agent"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 // --- El cliente del cliente ------------------------------------------------

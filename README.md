@@ -29,13 +29,56 @@ npm run dev                   # Fastify con reload, escucha en :3000
 `src/db/schema.ts`. Las migraciones generadas se commitean al repo — son
 la fuente de verdad de cómo evoluciona el esquema en cada base de cliente.
 
-## Qué falta a propósito
+## Quién entra
 
-Este primer corte es la capa de datos con reglas duras (dinero en centavos,
-baja lógica, correlativo reservado en transacción, activity_log en cada
-mutación) pero **sin autenticación real**: las rutas confían en un header
-`x-user-id` opcional para saber quién actúa. Antes de exponer esto fuera de
-la red interna hace falta login/sesión de verdad.
+Todo pide sesión. La regla es **cerrado salvo que se diga lo contrario**, y
+está en un solo lugar (`onRequest` en `server.ts`) y no ruta por ruta: con la
+lista al revés, cada ruta nueva nacería abierta y nadie se enteraría hasta que
+fuera tarde. Lo único que se atiende sin sesión son `/health` y las rutas de
+`/auth`.
+
+Hasta la versión anterior no había ninguna verificación: quien llamaba decía
+quién era en el header `x-user-id`, que se escribe solo. Ese header ya no se
+mira. `getUserId()` sale de la sesión.
+
+Dos puertas, porque hay dos situaciones:
+
+- **Oficina** — correo y contraseña (`POST /auth/entrar`).
+- **Planta** — se toca el nombre en la lista y se marca un PIN de 4 a 8
+  dígitos (`GET /auth/planta`, `POST /auth/pin`). La tablet de la planta pasa
+  de mano en mano y con las manos sucias un correo no se teclea; sin esto,
+  todos terminan usando la sesión del primero que la abrió.
+
+La sesión dura hasta que se cierra. La llave vive en una cookie `HttpOnly`,
+`SameSite=Lax`, y en la base sólo queda su huella `sha256`: quien lea la tabla
+`sessions` no encuentra con qué entrar. Revocar una sesión la corta en el acto.
+Cinco fallos seguidos traban la cuenta diez minutos; cambiarle la clave o el
+PIN la destraba.
+
+Los tres roles se aplican así:
+
+| | Dueña | Empleado | Solo lectura |
+|---|---|---|---|
+| Ver todo | sí | sí | sí |
+| Crear y editar | sí | sí | **no** |
+| Límite de crédito y plazo | sí | **no** | no |
+| Precios acordados con un cliente | sí | **no** | no |
+| Administrar cuentas | sí | **no** | no |
+
+La regla del crédito se mira campo por campo, no sobre la ruta entera: un
+empleado tiene que poder corregir un teléfono mal anotado sin pedir permiso.
+
+**La primera cuenta.** Mientras no existe ninguna, `/auth/primera-duena` deja
+crearla, y se cierra sola en cuanto hay alguien. Es una ventana angosta y hay
+que cruzarla apenas se publica: mientras esté abierta, quien llegue primero a
+la dirección se queda con la cuenta. No se puede quitar a la última dueña
+activa —ni por rol, ni desactivándola, ni borrándola—, porque eso dejaría el
+sistema sin nadie capaz de devolver permisos.
+
+Para comprobarlo sin creerle a nadie: `scripts/probar-acceso.mjs` golpea la
+API y `scripts/probar-entrada.mjs` recorre las pantallas en un navegador.
+
+## Qué falta a propósito
 
 Siguiente bloque según el doc: `jobs`, `receivables`, `payments`. Después,
 `fiscal_documents` (integración con Hacienda, la parte más delicada).

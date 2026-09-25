@@ -6,6 +6,8 @@
  * pueda quedar apuntando al lugar equivocado el día de una demostración.
  */
 
+import { avisarSinSesion } from "./acceso/sesion";
+
 export class ErrorApi extends Error {
   constructor(
     readonly estado: number,
@@ -21,6 +23,13 @@ async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
   });
+  // La sesion se acabo (se revoco desde otro aparato, se desactivo la
+  // cuenta). Se vuelve a la entrada en lugar de dejar una pantalla que ya no
+  // puede guardar nada.
+  if (r.status === 401) {
+    avisarSinSesion();
+    throw new ErrorApi(401, "Se cerró la sesión. Volvé a entrar.");
+  }
   if (r.status === 204) return undefined as T;
   const cuerpo = await r.json().catch(() => null);
   if (!r.ok) {

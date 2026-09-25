@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { customers } from "../db/schema.js";
 import { logActivity } from "../lib/activity-log.js";
-import { getUserId } from "../lib/request-context.js";
+import { getRol, getUserId } from "../lib/request-context.js";
 
 const createSchema = z.object({
   stage: z.enum(["prospect", "customer"]).default("prospect"),
@@ -74,6 +74,19 @@ export async function customersRoutes(app: FastifyInstance) {
   app.patch("/customers/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = updateSchema.parse(req.body);
+
+    /**
+     * Cuánto se le fía a un cliente lo decide una dueña.
+     *
+     * La regla se mira campo por campo y no sobre la ruta entera: un empleado
+     * tiene que poder corregir un teléfono mal anotado sin pedir permiso. Lo
+     * que no puede es subirle el límite de crédito a alguien.
+     */
+    if (getRol(req) !== "owner" && ("creditLimitCents" in body || "creditTermDays" in body)) {
+      return reply.code(403).send({
+        error: "El límite de crédito y el plazo los cambia una dueña. Lo demás del cliente sí podés editarlo.",
+      });
+    }
 
     const updated = await db.transaction(async (tx) => {
       const [before] = await tx

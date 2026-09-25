@@ -1,0 +1,261 @@
+/* La pantalla de entrada. Usa los mismos colores que el resto del sistema. */
+
+.acceso {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 16px;
+  background: var(--suelo);
+}
+
+.acceso-caja {
+  width: 100%;
+  max-width: 380px;
+  background: var(--superficie);
+  border: 1px solid var(--linea);
+  border-radius: 14px;
+  padding: 26px 22px;
+}
+
+.acceso-marca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.acceso-logo {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--tinta);
+}
+
+.acceso-titulo {
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--blanco);
+  font-size: 15px;
+}
+
+.acceso-sub {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--apagado);
+  margin-top: 2px;
+}
+
+.acceso-puertas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 20px;
+  background: var(--grafito);
+  border: 1px solid var(--linea-suave);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.acceso-puertas button {
+  padding: 9px 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--apagado);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.acceso-puertas button.activa {
+  background: var(--superficie-alta);
+  color: var(--tinta);
+  font-weight: 600;
+}
+
+.acceso-forma {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.acceso-forma .lbl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--apagado);
+}
+
+.acceso-forma input {
+  padding: 11px 12px;
+  border: 1px solid var(--linea);
+  border-radius: 9px;
+  background: var(--grafito);
+  color: var(--blanco);
+  font: inherit;
+  font-size: 16px; /* 16px o el navegador del teléfono hace zoom al enfocar */
+}
+
+.acceso-forma input:focus {
+  outline: 2px solid var(--tinta);
+  outline-offset: 1px;
+}
+
+.acceso-boton {
+  margin-top: 4px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.acceso-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--ambar-fondo);
+  border: 1px solid var(--ambar);
+  color: var(--ambar-tinta);
+  font-size: 13px;
+}
+
+.acceso-nota,
+.acceso-espera {
+  margin: 0 0 14px;
+  color: var(--apagado);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.acceso-ayuda {
+  font-size: 12px;
+  color: var(--apagado);
+}
+
+.acceso-pie {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tenue);
+  margin: 0;
+}
+
+/* --- Planta: nombres grandes y teclado numérico ------------------------- */
+
+.acceso-gente {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.acceso-persona {
+  padding: 15px 14px;
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+  background: var(--grafito);
+  color: var(--blanco);
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acceso-persona:active {
+  background: var(--superficie-alta);
+}
+
+.acceso-volver {
+  background: none;
+  border: 0;
+  color: var(--apagado);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 0 12px;
+  cursor: pointer;
+}
+
+.acceso-puntos {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 6px 0 16px;
+}
+
+.acceso-puntos span {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--linea);
+}
+
+.acceso-puntos span.lleno {
+  background: var(--tinta);
+  border-color: var(--tinta);
+}
+
+.acceso-teclado {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.acceso-teclado button {
+  /* Botones grandes a propósito: se tocan con el pulgar, de pie, en la planta. */
+  padding: 18px 0;
+  font-size: 22px;
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+  background: var(--grafito);
+  color: var(--blanco);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.acceso-teclado button:active {
+  background: var(--superficie-alta);
+}
+
+.acceso-teclado button:disabled {
+  opacity: 0.4;
+}
+
+.acceso-teclado .acceso-tenue {
+  font-size: 14px;
+  color: var(--apagado);
+}
+
+/* --- Quién está adentro, en la barra de arriba -------------------------- */
+
+.quien {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--apagado);
+  white-space: nowrap;
+}
+
+.quien strong {
+  color: var(--blanco);
+  font-weight: 600;
+}
+
+.quien button {
+  background: none;
+  border: 1px solid var(--linea);
+  border-radius: 7px;
+  color: var(--apagado);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.quien button:hover {
+  color: var(--tinta);
+  border-color: var(--tinta);
+}

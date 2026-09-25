@@ -19,6 +19,7 @@
     "db:seed-bloques:prod": "node dist/db/seed-bloques.js"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^10.0.2",
     "@fastify/static": "^10.1.3",
     "bcryptjs": "^2.4.3",

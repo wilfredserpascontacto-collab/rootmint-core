@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 /**
  * Siembra del módulo de bloques.
  *
@@ -163,7 +164,18 @@ async function sembrarDemo(porAbrev: Map<string, string>) {
     .values({
       name: "Operador de planta",
       email: "planta@bloquestitan.sv",
-      passwordHash: await bcrypt.hash("cambiar-esta-clave", 10),
+      /**
+       * Una clave al azar que nadie sabe, a proposito.
+       *
+       * Este usuario existe para una sola cosa: que activity_log tenga a quien
+       * atribuirle los movimientos de la demostracion. No es una cuenta para
+       * entrar. Antes llevaba "cambiar-esta-clave" escrita aqui mismo, y eso
+       * es una cuenta abierta publicada en el repositorio: cualquiera que
+       * leyera el codigo podia entrar al sistema de Titan. Si alguna vez hace
+       * falta que esta persona entre de verdad, una duena le pone clave desde
+       * la pantalla de cuentas.
+       */
+      passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
       role: "staff",
     })
     .onConflictDoNothing({ target: users.email })

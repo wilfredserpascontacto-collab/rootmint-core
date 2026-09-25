@@ -9,7 +9,12 @@ export async function logActivity(
     userId: string | null;
     entity: string;
     entityId: string;
-    action: "create" | "update" | "delete";
+    /**
+     * Qué se hizo. Las tres de siempre sobre un registro, más las
+     * entradas y salidas: saber quién anotó un pago pierde la mitad de su
+     * valor si no se sabe también quién estaba adentro esa tarde.
+     */
+    action: "create" | "update" | "delete" | "entrar" | "entrar-pin" | "primera-duena";
     oldValues?: unknown;
     newValues?: unknown;
   },

@@ -33,7 +33,7 @@ Comando tras compilar backend: node scripts/test-comercial.mjs.
 Prueba de interfaz: crear prospecto y cotización de 3,000 unidades a $0.65; subtotal $1,950, impuesto de ejemplo 13% $253.50, total $2,203.50. Revisión visual de resumen y propuesta guardada.
 
 ## Límites de esta primera entrega
-- Solo desarrollo local: autenticación, roles y endurecimiento del servidor heredado son pendientes antes de exposición o datos reales.
+- Autenticación y roles: ya están (ver "Quién entra" en el README). Falta endurecer el resto del servidor heredado antes de meter datos reales de verdad.
 - Cantidades comerciales enteras por el esquema heredado; fracciones requieren una migración de precisión explícita.
 - No hay edición de partidas de cotizaciones guardadas, revisiones, descuentos ni envío automático todavía.
 - Guardado de cotización no tiene clave de idempotencia ante respuesta de red incierta; revisar listado antes de reenviar. Agregar antes del piloto real.

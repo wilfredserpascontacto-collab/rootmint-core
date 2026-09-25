@@ -7,6 +7,8 @@ export type Line = { catalogItemId?:string|null; description:string; quantity:nu
 /** El renglón mientras se edita: el precio vive como texto para no perder lo que se teclea. */
 export type Renglon = { catalogItemId?:string; description:string; quantity:number; precio:string; tocado?:boolean };
 export type Quote = { id:string; number:number; customerId:string; issueDate:string; validityDays:number; status:string; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli?:number; description?:string; workLocation?:string; terms?:string; notes?:string; contactId?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
+import { avisarSinSesion } from "../acceso/sesion";
+
 export async function api<T>(path:string, method="GET", body?:unknown):Promise<T> {
  // La cabecera de JSON solo cuando de verdad viaja un JSON. Anunciarla con el
  // cuerpo vacío —lo que pasa en todo DELETE— hace que Fastify conteste 400
@@ -14,6 +16,9 @@ export async function api<T>(path:string, method="GET", body?:unknown):Promise<T
  // que ver con lo que la persona hizo.
  const response=await fetch(path,{ method, headers:body===undefined?undefined:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body) });
  const data=await response.json().catch(()=>null);
+ // 401 no es un error de la pantalla: es que la sesion se acabo. La app
+ // vuelve a la entrada en vez de mostrar un mensaje que nadie sabe resolver.
+ if(response.status===401){ avisarSinSesion(); throw new Error("Se cerró la sesión. Volvé a entrar."); }
  if(!response.ok) throw new Error(data?.details?.[0]?.message ? data.error+": "+data.details[0].message : data?.error ?? "No se pudo conectar. Intenta de nuevo.");
  return data;
 }
