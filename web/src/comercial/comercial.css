@@ -31,3 +31,9 @@
 #commercial .c-avisos{list-style:none;margin:15px 0;padding:0;display:flex;flex-direction:column;gap:8px}
 #commercial .c-avisos li{background:#f9f2e4;border:1px solid #e4d2ae;color:#7d6330;padding:11px 15px;border-radius:5px;font-size:14px}
 @media (max-width:760px){#commercial .c-detail-grid{grid-template-columns:minmax(0,1fr)}#commercial .c-libreta li{grid-template-columns:minmax(0,1fr)}}
+
+#commercial .c-workspace-footer .c-credito-proveedor{color:#a3ab9d;letter-spacing:.5px}
+
+/* El nombre del cliente es más largo que el que estaba: cabe en una línea. */
+#commercial .c-logo{font-size:19px;letter-spacing:1px;white-space:nowrap}
+#commercial .c-logo small{padding-left:28px;letter-spacing:3px}
