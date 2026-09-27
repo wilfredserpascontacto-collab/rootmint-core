@@ -8,6 +8,7 @@ import Receta from "./pantallas/Receta";
 import Mantenimiento from "./pantallas/Mantenimiento";
 import Ajustes from "./pantallas/Ajustes";
 import Catalogo from "./pantallas/Catalogo";
+import Cuentas from "./pantallas/Cuentas";
 import Telemetria from "./comp/Telemetria";
 import Acceso from "./acceso/Acceso";
 import { NOMBRE_ROL, salir, useSesion } from "./acceso/sesion";
@@ -49,6 +50,9 @@ export default function App() {
           <NavLink to="/mantenimiento" className={({ isActive }) => (isActive ? "activo" : "")}>Mantenimiento</NavLink>
           <NavLink to="/catalogo" className={({ isActive }) => (isActive ? "activo" : "")}>Catálogo</NavLink>
           <NavLink to="/ajustes" className={({ isActive }) => (isActive ? "activo" : "")}>Ajustes</NavLink>
+          {estado.persona.role === "owner" && (
+            <NavLink to="/cuentas" className={({ isActive }) => (isActive ? "activo" : "")}>Cuentas</NavLink>
+          )}
         </nav>
         {quien}
       </header>
@@ -63,6 +67,7 @@ export default function App() {
         <Route path="/mantenimiento" element={<Mantenimiento />} />
         <Route path="/catalogo" element={<Catalogo />} />
         <Route path="/ajustes" element={<Ajustes />} />
+        <Route path="/cuentas" element={<Cuentas yo={estado.persona} />} />
         <Route path="*" element={<div className="vacio">Esa pantalla no existe.</div>} />
       </Routes>
 

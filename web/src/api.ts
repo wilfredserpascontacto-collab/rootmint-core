@@ -33,15 +33,36 @@ async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
   if (r.status === 204) return undefined as T;
   const cuerpo = await r.json().catch(() => null);
   if (!r.ok) {
-    const msg =
+    const general =
       (cuerpo && typeof cuerpo === "object" && "error" in cuerpo
         ? String((cuerpo as { error: unknown }).error)
         : null) ?? `Error ${r.status}`;
-    const det =
-      cuerpo && typeof cuerpo === "object" && "detalle" in cuerpo
-        ? (cuerpo as { detalle: unknown }).detalle
+
+    /**
+     * El detalle viene en "details", no en "detalle".
+     *
+     * Durante meses esto leyo un campo que el servidor nunca manda, asi que
+     * el detalle se perdia SIEMPRE y en pantalla quedaba el generico "Datos
+     * invalidos". El servidor se tomaba el trabajo de explicar que estaba mal
+     * —"Ese PIN lo adivina cualquiera", "Eso no parece un correo"— y la
+     * persona leia una frase que no le dice donde mirar. Una letra de
+     * diferencia, y la diferencia entre un sistema que ayuda y uno que
+     * regana.
+     *
+     * Cuando hay una explicacion concreta se muestra esa y no la general: a
+     * quien se equivoco le sirve mas saber que el PIN es adivinable que saber
+     * que "los datos son invalidos".
+     */
+    const detalle =
+      cuerpo && typeof cuerpo === "object" && "details" in cuerpo
+        ? (cuerpo as { details: unknown }).details
         : undefined;
-    throw new ErrorApi(r.status, msg, det);
+    const primero =
+      Array.isArray(detalle) && detalle[0] && typeof detalle[0] === "object" && "message" in detalle[0]
+        ? String((detalle[0] as { message: unknown }).message)
+        : null;
+
+    throw new ErrorApi(r.status, primero ?? general, detalle);
   }
   return cuerpo as T;
 }

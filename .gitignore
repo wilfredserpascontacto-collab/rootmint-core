@@ -6,6 +6,10 @@ _to_delete
 dist-web
 web/node_modules
 web/tsconfig.tsbuildinfo
-.local-data/
+# Bases locales de desarrollo y de prueba. El comodin es a proposito:
+# cada prueba usa su propia carpeta (.local-data-cuentas, .local-data-acceso)
+# para no pisarse, y una sola linea sin comodin dejaba entrar a todas las
+# demas — una vez se colaron 1.000 archivos de Postgres en un commit.
+.local-data*/
 .test-data/
 .sites-runtime/

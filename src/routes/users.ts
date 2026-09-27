@@ -39,6 +39,15 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
   /** null quita el PIN y con eso saca a la persona de la lista de la planta. */
   pin: pinValido.nullable().optional(),
+  /**
+   * Destrabar una cuenta que se paso de intentos fallidos.
+   *
+   * Antes la unica forma era cambiarle la contrasena, que obliga a inventarle
+   * una nueva y a hacersela llegar. Casi siempre el operario no la olvido: se
+   * equivoco cinco veces con prisa. Esto lo deja entrar otra vez con la que
+   * ya tiene.
+   */
+  destrabar: z.boolean().optional(),
 });
 
 /**
@@ -164,7 +173,7 @@ export async function usersRoutes(app: FastifyInstance) {
         // Cambiarle la contraseña o el PIN a alguien lo destraba: es
         // justamente lo que hace una dueña cuando la llaman porque el
         // operario se equivocó cinco veces.
-        ...((body.password !== undefined || body.pin !== undefined) && {
+        ...((body.password !== undefined || body.pin !== undefined || body.destrabar) && {
           failedAttempts: 0,
           lockedUntil: null,
         }),
