@@ -634,7 +634,7 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
       .sort((a, b) => {
         const fa = a.neededBy ? new Date(a.neededBy).getTime() : Infinity;
         const fb = b.neededBy ? new Date(b.neededBy).getTime() : Infinity;
-        return fa - fb;
+        return fa === fb ? a.number - b.number : fa - fb;
       });
 
     return { recetas: recetasDisponibles, enPrueba, ultimoLote: enCurso[0] ?? null, ordenes };

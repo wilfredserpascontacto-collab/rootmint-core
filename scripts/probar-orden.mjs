@@ -89,8 +89,9 @@ await pag.getByRole("button", { name: /Pasar a producción/i }).click();
 await esperar(2500);
 const t1 = await texto();
 ok(/Orden N° 1/.test(t1), "queda creada la orden N° 1");
-ok(/llevan 0 de 320/.test(t1), "y pide 320, no 500", (t1.match(/llevan \d+ de \d+/) ?? [])[0]);
-ok(/hay 180 disponibles/.test(t1), "explicando por qué", (t1.match(/hay \d+ disponibles[^.]*/) ?? [])[0]);
+ok(/0 de 320 bloques fabricados/.test(t1), "y pide 320, no 500", (t1.match(/\d+ de \d+ bloques fabricados/) ?? [])[0]);
+ok(/sólo faltan 320 de los 500/.test(t1), "y el panel explica por qué", (t1.match(/sólo faltan[^.]*/) ?? [])[0]);
+ok((t1.match(/sólo faltan 320 de los 500/g) ?? []).length === 1, "una sola vez: el mismo aviso repetido no se lee");
 ok(!(await pag.getByRole("button", { name: /Pasar a producción/i }).isVisible().catch(() => false)),
    "y el botón desaparece: no se manda dos veces lo mismo");
 
@@ -178,7 +179,17 @@ const suelta = await api("/ordenes", { lines: [{ blockTypeId: tipo.id, quantity:
 ok(suelta.estado === 201, "se puede crear sin cotización", `estado ${suelta.estado}`);
 await pag.goto(`${BASE}/#/ordenes`, { waitUntil: "networkidle" });
 await esperar(2000);
-ok(/Orden N° 2/.test(await texto()), "y aparece en la cola de la planta");
+const cola = await texto();
+ok(/Orden N° 2/.test(cola), "y aparece en la cola de la planta");
+
+console.log("\n=== la cola se atiende por antigüedad, y la fecha manda ===");
+await api("/ordenes", { lines: [{ blockTypeId: tipo.id, quantity: 80 }] });
+const sinFecha = (await api("/ordenes", null, "GET")).cuerpo.map((o) => o.number);
+ok(JSON.stringify(sinFecha) === "[2,3]", "sin fecha, primero la que lleva más esperando", JSON.stringify(sinFecha));
+
+await api("/ordenes", { lines: [{ blockTypeId: tipo.id, quantity: 90 }], neededBy: "2026-01-05T00:00:00.000Z" });
+const conFecha = (await api("/ordenes", null, "GET")).cuerpo.map((o) => o.number);
+ok(conFecha[0] === 4, "y la que tiene fecha se pone adelante", JSON.stringify(conFecha));
 
 console.log("\n=== la receta que no corresponde a la orden se rechaza ===");
 const otroTipo = tipos[1];

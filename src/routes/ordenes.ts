@@ -302,10 +302,12 @@ export async function ordenesRoutes(app: FastifyInstance) {
       })
       .sort((a, b) => {
         // Lo que tiene fecha va antes que lo que no: una orden sin fecha no
-        // es urgente, es una orden sin fecha.
+        // es urgente, es una orden sin fecha. Y a igualdad de fecha manda el
+        // número más bajo — la que lleva más tiempo esperando. La cola de una
+        // planta se atiende por antigüedad, no por lo último que entró.
         const fa = a.neededBy ? new Date(a.neededBy).getTime() : Infinity;
         const fb = b.neededBy ? new Date(b.neededBy).getTime() : Infinity;
-        return fa - fb;
+        return fa === fb ? a.number - b.number : fa - fb;
       });
   });
 
@@ -396,12 +398,14 @@ export async function ordenesRoutes(app: FastifyInstance) {
         continue;
       }
 
-      if (disponible > 0) {
-        avisos.push(
-          `De «${tipo.name}» hay ${disponible} disponibles, así que la orden pide sólo los ${falta} que faltan de los ${r.quantity}.`,
-        );
-      }
-
+      /**
+       * Acá NO va un aviso diciendo «hay 240, así que la orden pide 760».
+       *
+       * Eso ya lo dice la pantalla de la cotización, palabra por palabra, y
+       * decirlo dos veces con distintas palabras no informa el doble: hace que
+       * se dejen de leer los dos. Los avisos que quedan son los que dicen algo
+       * que la tabla no puede decir sola.
+       */
       aFabricar.push({
         blockTypeId: tipo.id,
         description: tipo.name,

@@ -359,7 +359,7 @@ function QuoteDetail(){
   {avisosOrden.length>0&&<ul className="c-avisos" role="status" style={{marginTop:10}}>{avisosOrden.map((a,i)=><li key={i}>{a}</li>)}</ul>}
   {/* Las órdenes que ya salieron de esta cotización, con su avance. */}
   {(od.data??[]).map(o=><p key={o.id} className="c-ficha-nota" style={{marginTop:10}}>
-   <Link to={"/ordenes/"+o.id}><strong>Orden N° {o.number}</strong></Link> · {ESTADO_ORDEN[o.status]} · llevan {o.producido} de {o.pedido} bloques{o.falta>0&&o.status!=="anulada"?`, faltan ${o.falta}`:""}.
+   <Link to={"/ordenes/"+o.id}><strong>Orden N° {o.number}</strong></Link> · {ESTADO_ORDEN[o.status]} · {o.producido} de {o.pedido} bloques fabricados{o.falta>0&&o.status!=="anulada"?`, faltan ${o.falta}`:""}.
   </p>)}
   <div className="c-statusbar" style={{marginTop:10}}>
    {!ordenViva&&hayQueProducir&&<button className="c-primary" disabled={busy} onClick={pasarAProduccion}>Pasar a producción</button>}

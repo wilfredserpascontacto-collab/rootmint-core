@@ -123,8 +123,10 @@ export default function Planta() {
             <option value="">Sin orden · producir para tener existencia</option>
             {pedidos.map((o) => (
               <option key={o.id} value={o.id}>
-                Orden N° {o.number}
-                {o.customerName ? ` · ${o.customerName}` : ""} · faltan {o.falta}
+                {/* Faltan N va antes del cliente: el select recorta por la
+                    derecha, y lo que no puede perderse es cuántos son. */}
+                Orden N° {o.number} · faltan {o.falta}
+                {o.customerName ? ` · ${o.customerName}` : ""}
               </option>
             ))}
           </select>

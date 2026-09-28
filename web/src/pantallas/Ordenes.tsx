@@ -144,9 +144,14 @@ export function FichaOrden() {
         <Link to="/ordenes" className="lbl" style={{ textDecoration: "none" }}>← Órdenes</Link>
         <div className="fila" style={{ gap: 18, alignItems: "baseline", flexWrap: "wrap" }}>
           <h1 className="titulo">ORDEN N° {o.number}</h1>
+          {/*
+            La fecha va en el encabezado y no escondida abajo: la primera
+            pregunta sobre una orden abierta es desde cuándo está esperando.
+          */}
           <span style={{ fontSize: 17, color: "var(--apagado)" }}>
             {NOMBRE[o.status]}
             {o.customerName ? ` · ${o.customerName}` : ""}
+            {` · abierta el ${fecha(o.createdAt)}`}
             {o.neededBy ? ` · para el ${fecha(o.neededBy)}` : ""}
           </span>
         </div>
