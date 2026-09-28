@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, Link, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
-import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata, type Factura, type PorFacturar, TIPO_FACTURA, numeroFactura } from "./api";
+import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata, type Factura, type PorFacturar, TIPO_FACTURA, numeroFactura, MOTIVO_INV, type Existencia, type MovimientoInv, type QueProducir } from "./api";
 import "./comercial.css";
 
 function useData<T>(path:string) {
@@ -174,10 +174,22 @@ function CustomerDetail(){
  return <><Link className="c-back" to="/comercial/clientes">← Clientes y prospectos</Link><Header title={c.data?.name??"Expediente"} subtitle="Información de contacto, condiciones de pago e historial." action={<Link className="c-primary" to={"/comercial/cotizaciones/nueva?cliente="+id}>+ Preparar cotización</Link>}/><ErrorBox message={c.error||q.error}/>{c.data&&<div className="c-detail-grid"><aside className="c-card c-pad"><Badge status={c.data.stage}/><h3>Datos del contacto</h3><p>{c.data.phone||"Sin teléfono"}</p><p>{c.data.email||"Sin correo"}</p><p>{c.data.address||"Sin dirección"}</p><hr/><p>NIT: {c.data.nit||"—"}</p><p>NRC: {c.data.nrc||"—"}</p><h3>Seguimiento</h3><p className="c-pre">{c.data.notes||"Sin notas registradas."}</p></aside><div className="c-expediente"><FichaFinanciera cliente={c.data} recargarCliente={c.reload}/><section className="c-card c-pad"><h2>Cotizaciones</h2><QuoteTable quotes={q.data??[]} customers={c.data?[c.data]:[]}/>{q.data?.length===0&&<Empty title="Historial por comenzar">Las cotizaciones de este contacto aparecerán aquí.</Empty>}</section></div></div>}</>;
 }
 function Catalog(){
- const {data,error,reload}=useData<Item[]>("/catalog-items");const [search,setSearch]=useState("");const [editing,setEditing]=useState<Partial<Item>|null>(null);const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);
- async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();if(busy)return;setBusy(true);setFailure("");const f=new FormData(e.currentTarget);try{const body={...Object.fromEntries(f),unitPriceCents:cents(String(f.get("price")))};delete (body as Record<string,unknown>).price;await api(editing?.id?"/catalog-items/"+editing.id:"/catalog-items",editing?.id?"PATCH":"POST",body);setEditing(null);reload()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
- return <><Header title="Productos y servicios" subtitle="Los precios de partida para tus cotizaciones." action={<button className="c-primary" onClick={()=>{setFailure("");setEditing({type:"product",unit:"unidad"})}}>+ Agregar al catálogo</button>}/><div className="c-toolbar"><input aria-label="Buscar productos" placeholder="Buscar por código o descripción…" value={search} onChange={e=>setSearch(e.target.value)}/><span>{data?.length??0} productos y servicios</span></div><ErrorBox message={error}/><div className="c-card c-scroll"><table><thead><tr><th>Código</th><th>Producto o servicio</th><th>Unidad</th><th className="c-num">Precio unitario</th><th></th></tr></thead><tbody>{data?.filter(i=>(i.name+" "+i.code).toLowerCase().includes(search.toLowerCase())).map(i=><tr key={i.id}><td>{i.code}</td><td><strong>{i.name}</strong><small>{i.category|| (i.type==="product"?"Producto":"Servicio")}</small></td><td>{i.unit}</td><td className="c-num">{money(i.unitPriceCents)}</td><td><button className="c-link" onClick={()=>{setFailure("");setEditing(i)}}>Editar</button></td></tr>)}</tbody></table>{data?.length===0&&<Empty title="Tu catálogo empieza aquí">Agrega ladrillos, transporte u otros conceptos para cotizar.</Empty>}</div>
- {editing&&<Modal title={editing.id?"Editar producto":"Agregar al catálogo"} close={()=>setEditing(null)}><form onSubmit={save}><div className="c-form-grid"><Field label="Código"><input name="code" defaultValue={editing.code} required autoFocus/></Field><Field label="Tipo"><select name="type" defaultValue={editing.type}><option value="product">Producto</option><option value="service">Servicio</option></select></Field><Field label="Nombre" wide><input name="name" defaultValue={editing.name} required/></Field><Field label="Unidad"><input name="unit" defaultValue={editing.unit} required/></Field><Field label="Precio unitario antes de impuestos (USD)"><input name="price" type="number" min="0" max="1000000" step="0.01" required defaultValue={((editing.unitPriceCents??0)/100).toFixed(2)}/></Field><Field label="Categoría" wide><input name="category" defaultValue={editing.category??""}/></Field></div><ErrorBox message={failure}/><div className="c-actions"><button type="button" onClick={()=>setEditing(null)}>Cancelar</button><button className="c-primary" disabled={busy}>{busy?"Guardando…":"Guardar producto"}</button></div></form></Modal>}</>;
+ const {data,error,reload}=useData<Item[]>("/catalog-items");const [search,setSearch]=useState("");
+ // Los tipos de bloque de producción, para poder decir cuál es cuál.
+ const inv=useData<Existencia[]>("/inventario");const [editing,setEditing]=useState<Partial<Item>|null>(null);const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);
+ async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();if(busy)return;setBusy(true);setFailure("");const f=new FormData(e.currentTarget);try{const body={...Object.fromEntries(f),unitPriceCents:cents(String(f.get("price")))};delete (body as Record<string,unknown>).price;const tipoBloque=String(f.get("blockTypeId")??"");delete (body as Record<string,unknown>).blockTypeId;
+ const guardado=await api<Item>(editing?.id?"/catalog-items/"+editing.id:"/catalog-items",editing?.id?"PATCH":"POST",body);
+ // El enlace va aparte porque toca producción, no el catálogo: si falla, el
+ // producto igual se guardó y el error dice exactamente qué quedó pendiente.
+ if(tipoBloque!==(editing?.blockTypeId??"")) await api("/catalog-items/"+guardado.id+"/tipo-bloque","PATCH",{blockTypeId:tipoBloque||null});
+ setEditing(null);reload();inv.reload()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
+ return <><Header title="Productos y servicios" subtitle="Los precios de partida para tus cotizaciones." action={<button className="c-primary" onClick={()=>{setFailure("");setEditing({type:"product",unit:"unidad"})}}>+ Agregar al catálogo</button>}/><div className="c-toolbar"><input aria-label="Buscar productos" placeholder="Buscar por código o descripción…" value={search} onChange={e=>setSearch(e.target.value)}/><span>{data?.length??0} productos y servicios</span></div><ErrorBox message={error}/><div className="c-card c-scroll"><table><thead><tr><th>Código</th><th>Producto o servicio</th><th>Unidad</th><th>Se fabrica como</th><th className="c-num">Precio unitario</th><th></th></tr></thead><tbody>{data?.filter(i=>(i.name+" "+i.code).toLowerCase().includes(search.toLowerCase())).map(i=><tr key={i.id}><td>{i.code}</td><td><strong>{i.name}</strong><small>{i.category|| (i.type==="product"?"Producto":"Servicio")}</small></td><td>{i.unit}</td><td>{inv.data?.find(x=>x.catalogItemId===i.id)?.name??<span className="c-ficha-nota">{i.type==="product"?"sin enlazar":"—"}</span>}</td><td className="c-num">{money(i.unitPriceCents)}</td><td><button className="c-link" onClick={()=>{setFailure("");setEditing(i)}}>Editar</button></td></tr>)}</tbody></table>{data?.length===0&&<Empty title="Tu catálogo empieza aquí">Agrega ladrillos, transporte u otros conceptos para cotizar.</Empty>}</div>
+ {editing&&<Modal title={editing.id?"Editar producto":"Agregar al catálogo"} close={()=>setEditing(null)}><form onSubmit={save}><div className="c-form-grid"><Field label="Código"><input name="code" defaultValue={editing.code} required autoFocus/></Field><Field label="Tipo"><select name="type" defaultValue={editing.type}><option value="product">Producto</option><option value="service">Servicio</option></select></Field><Field label="Nombre" wide><input name="name" defaultValue={editing.name} required/></Field><Field label="Unidad"><input name="unit" defaultValue={editing.unit} required/></Field><Field label="Precio unitario antes de impuestos (USD)"><input name="price" type="number" min="0" max="1000000" step="0.01" required defaultValue={((editing.unitPriceCents??0)/100).toFixed(2)}/></Field><Field label="Categoría" wide><input name="category" defaultValue={editing.category??""}/></Field>
+<Field label="¿Qué bloque es, en producción?" wide><select name="blockTypeId" defaultValue={editing.blockTypeId??""}>
+ <option value="">No es un bloque que se fabrique acá</option>
+ {inv.data?.map(t=><option key={t.blockTypeId} value={t.blockTypeId} disabled={Boolean(t.catalogItemId)&&t.catalogItemId!==editing.id}>{t.name}{t.catalogItemId&&t.catalogItemId!==editing.id?" · ya enlazado":""}</option>)}
+</select></Field></div>
+<p className="c-ficha-nota">Enlazarlo es lo que permite que una cotización sepa si lo que el cliente pide ya está en el patio. La mano de obra, el flete y todo lo que no se fabrica se dejan sin enlazar.</p><ErrorBox message={failure}/><div className="c-actions"><button type="button" onClick={()=>setEditing(null)}>Cancelar</button><button className="c-primary" disabled={busy}>{busy?"Guardando…":"Guardar producto"}</button></div></form></Modal>}</>;
 }
 function QuoteTable({quotes,customers}:{quotes:Quote[];customers:Customer[]}){
  return <div className="c-scroll"><table><thead><tr><th>Cotización / cliente</th><th>Fecha</th><th>Estado</th><th className="c-num">Total</th><th></th></tr></thead><tbody>{[...quotes].sort((a,b)=>b.number-a.number).map(q=><tr key={q.id}><td><Link to={"/comercial/cotizaciones/"+q.id}><strong>{number(q.number)}</strong></Link><small>{q.customerSnapshot?.name??customers.find(c=>c.id===q.customerId)?.name??"Cliente"}</small></td><td>{date(q.issueDate)}</td><td><Badge status={q.status}/></td><td className="c-num"><strong>{money(q.totalCents)}</strong></td><td><Link className="c-link" to={"/comercial/cotizaciones/"+q.id}>Ver →</Link></td></tr>)}</tbody></table></div>
@@ -298,6 +310,8 @@ function QuoteDetail(){
  const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);const [avisos,setAvisos]=useState<string[]>(recienGuardado);const [confirmando,setConfirmando]=useState(false);
  // Lo que falta facturar, renglón por renglón. Una obra se entrega por partes.
  const pf=useData<{lines:PorFacturar[]}>("/quotes/"+id+"/por-facturar");
+ // Lo que pidieron en la reunión: que la cotización sepa si ya está fabricado.
+ const qp=useData<{lines:QueProducir[];avisos:string[]}>("/quotes/"+id+"/que-producir");
  const falta=(pf.data?.lines??[]).filter(l=>l.pendiente>0);
  const algoFacturado=(pf.data?.lines??[]).some(l=>l.facturado>0);
  async function facturar(){
@@ -314,6 +328,17 @@ function QuoteDetail(){
  const customer=quote.customerSnapshot;const business=quote.businessSnapshot;
  const expires=new Date(quote.issueDate);expires.setUTCDate(expires.getUTCDate()+quote.validityDays);
  return <><div className="c-no-print"><Link className="c-back" to="/comercial/cotizaciones">← Cotizaciones</Link><Header title={number(quote.number)} subtitle={quote.description||"Propuesta comercial"} action={<button className="c-primary" onClick={()=>window.print()}>Imprimir / guardar PDF</button>}/><div className="c-statusbar"><Badge status={quote.status}/><Link className="c-primary" to={"/comercial/cotizaciones/"+quote.id+"/editar"}>Corregir</Link>{opciones.map(k=><button key={k} className={naturales.length===1&&naturales[0]===k?"c-primary":""} disabled={busy} onClick={()=>status(k)}>{ACCIONES[k]}</button>)}{confirmando?<span className="c-confirmar">¿Archivar {number(quote.number)}?<button disabled={busy} onClick={archivar}>Sí, archivar</button><button disabled={busy} onClick={()=>setConfirmando(false)}>No</button></span>:<button disabled={busy} onClick={()=>setConfirmando(true)}>Archivar</button>}{falta.length>0&&<button className={quote.status==="accepted"?"c-primary":""} disabled={busy} onClick={facturar}>{algoFacturado?"Facturar lo que falta":"Facturar"}</button>}<span>El envío al cliente se realiza fuera del sistema.</span></div>
+ {qp.data&&qp.data.lines.some(l=>l.esProducible||l.sinEnlazar)&&<section className="c-card c-pad" style={{marginTop:12}}>
+  <h3>Para poder entregar esto</h3>
+  <div className="c-scroll"><table><thead><tr><th>Producto</th><th className="c-num">Pedido</th><th className="c-num">En el patio</th><th className="c-num">Hay que producir</th></tr></thead>
+  <tbody>{qp.data.lines.filter(l=>l.esProducible).map(l=><tr key={l.quoteLineId}>
+   <td>{l.description}</td><td className="c-num">{l.pedido.toLocaleString("es-SV")}</td>
+   <td className="c-num">{(l.enExistencia??0).toLocaleString("es-SV")}</td>
+   <td className="c-num"><strong>{l.hayQueProducir===0?"—":(l.hayQueProducir??0).toLocaleString("es-SV")}</strong></td>
+  </tr>)}</tbody></table></div>
+  {qp.data.avisos.length>0&&<ul className="c-avisos" role="status" style={{marginTop:10}}>{qp.data.avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}
+  <p className="c-ficha-nota">El número sale del inventario, que se llena solo cuando se cierra un lote en producción. <Link to="/comercial/inventario">Ver el patio</Link>.</p>
+ </section>}
  {pf.data&&<p className="c-ficha-nota">{falta.length===0?"Esta cotización ya está facturada por completo.":algoFacturado?`Falta facturar: ${falta.map(l=>`${l.pendiente} de ${l.description}`).join(", ")}.`:"Todavía no se ha facturado nada de esta cotización."}</p>}{avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}<ErrorBox message={failure}/></div>
  <article className="c-paper"><div className="c-paper-top"><div><span className="c-paper-mark">▥</span><h2>{business?.name??"Empresa · documento anterior"}</h2><p>{business?.address}</p><p>{[business?.phone,business?.email].filter(Boolean).join(" · ")}</p>{business?.nit&&<p>NIT {business.nit}</p>}</div><div className="c-paper-number"><span>COTIZACIÓN</span><h2>{number(quote.number)}</h2><p>Emisión: {date(quote.issueDate)}</p><p>Válida hasta: {date(expires.toISOString())}</p><Badge status={quote.status}/></div></div>
  <div className="c-paper-client"><div><span className="c-eyebrow">PREPARADA PARA</span><h3>{customer?.name??"Cliente · documento anterior sin copia histórica"}</h3><p>{customer?.address}</p><p>{[customer?.phone,customer?.email].filter(Boolean).join(" · ")}</p>{customer?.nit&&<p>NIT: {customer.nit}</p>}</div><div><span className="c-eyebrow">PROYECTO / ENTREGA</span><h3>{quote.description||"Suministro de productos y servicios"}</h3><p>{quote.workLocation||"Por acordar"}</p></div></div>
@@ -436,6 +461,71 @@ function FacturaDetail(){
  <footer>{esCCF?"Los precios no incluyen IVA; se desglosa arriba.":"Los precios mostrados incluyen IVA."}</footer></article></>;
 }
 
+
+/**
+ * El patio: cuántos bloques hay de cada tipo.
+ *
+ * El número no está guardado en ningún lado — es la suma de las entradas y
+ * salidas. Por eso cada fila se puede abrir y ver de dónde salió cada bloque.
+ * Un número que no se puede explicar es un número al que nadie le cree.
+ */
+function Inventario(){
+ const inv=useData<Existencia[]>("/inventario");
+ const [abierto,setAbierto]=useState<string|null>(null);
+ const [ajustando,setAjustando]=useState<Existencia|null>(null);
+ const [failure,setFailure]=useState("");const [avisos,setAvisos]=useState<string[]>([]);
+ const filas=inv.data??[];
+ const sinEnlazar=filas.filter(f=>!f.catalogItemId);
+ return <><Header title="Inventario" subtitle="Lo que hay en el patio, listo para entregar. Sale de sumar lo producido menos lo que salió."/>
+ <ErrorBox message={failure||inv.error}/>
+ {avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}
+ {sinEnlazar.length>0&&<div className="c-aviso" role="status">Hay {sinEnlazar.length} {sinEnlazar.length===1?"tipo de bloque":"tipos de bloque"} que no {sinEnlazar.length===1?"corresponde":"corresponden"} a ningún producto del catálogo. Mientras no estén enlazados, una cotización no puede saber si lo que pide ya está fabricado. Se enlazan desde <Link to="/comercial/productos">Productos</Link>.</div>}
+ <section className="c-card"><div className="c-scroll"><table><thead><tr><th>Tipo de bloque</th><th>Se vende como</th><th className="c-num">En el patio</th><th></th></tr></thead>
+ <tbody>{filas.map(f=><tr key={f.blockTypeId}><td><strong>{f.name}</strong><small>{f.code}</small></td>
+  <td>{f.catalogItemName??<span className="c-ficha-nota">sin enlazar</span>}</td>
+  <td className="c-num"><strong style={f.existencia<0?{color:"var(--peligro, #e5484d)"}:undefined}>{f.existencia.toLocaleString("es-SV")}</strong></td>
+  <td style={{whiteSpace:"nowrap"}}>
+   <button className="c-link" onClick={()=>setAbierto(abierto===f.blockTypeId?null:f.blockTypeId)}>{abierto===f.blockTypeId?"Cerrar":"De dónde sale"}</button>
+   {" · "}<button className="c-link" onClick={()=>{setAjustando(f);setAbierto(null)}}>Ajustar</button>
+  </td></tr>)}</tbody></table></div>
+ {inv.data&&!filas.length&&<Empty title="Todavía no hay tipos de bloque">El inventario se llena solo a medida que se producen lotes.</Empty>}</section>
+ {abierto&&<Movimientos blockTypeId={abierto}/>}
+ {ajustando&&<Ajuste tipo={ajustando} onListo={(av)=>{setAvisos(av);setAjustando(null);inv.reload()}} onError={setFailure} onCancelar={()=>setAjustando(null)}/>}
+ </>;
+}
+
+function Movimientos({blockTypeId}:{blockTypeId:string}){
+ const m=useData<MovimientoInv[]>("/inventario/"+blockTypeId+"/movimientos");
+ return <section className="c-card c-pad"><h3>De dónde sale el número</h3><ErrorBox message={m.error}/>
+ <div className="c-scroll"><table><thead><tr><th>Fecha</th><th>Motivo</th><th>Detalle</th><th className="c-num">Cantidad</th></tr></thead>
+ <tbody>{m.data?.map(x=><tr key={x.id}><td>{date(x.notedAt)}</td><td>{MOTIVO_INV[x.reason]??x.reason}</td><td>{x.note??"—"}</td>
+  <td className="c-num"><strong>{x.quantity>0?"+":""}{x.quantity.toLocaleString("es-SV")}</strong></td></tr>)}</tbody></table></div>
+ {m.data&&!m.data.length&&<p className="c-ficha-nota">Todavía no hay movimientos de este bloque.</p>}</section>;
+}
+
+function Ajuste({tipo,onListo,onError,onCancelar}:{tipo:Existencia;onListo:(avisos:string[])=>void;onError:(e:string)=>void;onCancelar:()=>void}){
+ const [conteo,setConteo]=useState("");const [note,setNote]=useState("");const [busy,setBusy]=useState(false);
+ const contado=conteo.trim()===""?null:Number(conteo);
+ // Se pide lo que HAY, no la diferencia: nadie cuenta un patio en "menos 97".
+ const diferencia=contado===null||!Number.isFinite(contado)?null:contado-tipo.existencia;
+ async function guardar(e:FormEvent){
+  e.preventDefault();if(busy||diferencia===null||diferencia===0)return;
+  setBusy(true);onError("");
+  try{const r=await api<{avisos?:string[]}>("/inventario/ajuste","POST",{blockTypeId:tipo.blockTypeId,quantity:diferencia,reason:"ajuste",note:note.trim()});onListo(r.avisos??[])}
+  catch(err){onError((err as Error).message);setBusy(false)}
+ }
+ return <form className="c-card c-pad" onSubmit={guardar}><h3>Ajustar «{tipo.name}»</h3>
+ <p className="c-ficha-nota">El sistema tiene <strong>{tipo.existencia.toLocaleString("es-SV")}</strong>. Escribí cuántos contaste de verdad en el patio.</p>
+ <div className="c-form-grid">
+  <Field label="Cuántos hay"><input className="c-num" inputMode="numeric" value={conteo} onChange={e=>setConteo(e.target.value)} required autoFocus/></Field>
+  <Field label="Por qué se ajusta" wide><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Conteo físico del patio" required minLength={3}/></Field>
+ </div>
+ {diferencia!==null&&diferencia!==0&&<p className="c-ficha-nota">Se va a anotar un movimiento de <strong>{diferencia>0?"+":""}{diferencia}</strong>.</p>}
+ {diferencia===0&&<p className="c-ficha-nota">Ese es el número que el sistema ya tiene: no hay nada que ajustar.</p>}
+ <div className="c-actions"><button className="c-primary" disabled={busy||diferencia===null||diferencia===0}>{busy?"Guardando…":"Guardar el conteo"}</button><button type="button" onClick={onCancelar}>Cancelar</button></div>
+ </form>;
+}
+
 function Settings({onSaved}:{onSaved:()=>void}) {
  const p=useData<Profile>("/business-profile");const [failure,setFailure]=useState("");const [saved,setSaved]=useState(false);const [busy,setBusy]=useState(false);
  async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);setSaved(false);try{await api("/business-profile","PUT",Object.fromEntries(new FormData(e.currentTarget)));setSaved(true);setFailure("");onSaved()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
@@ -449,6 +539,6 @@ function Dashboard(){
 }
 export default function Comercial({quien}:{quien?:ReactNode}){
  const p=useData<Profile>("/business-profile");
- return <div id="commercial"><aside className="c-sidebar"><Link className="c-logo" to="/comercial"><span>▥</span> GRUPO TITÁN<small>ÁREA COMERCIAL</small></Link><div className="c-company"><span>{(p.data?.name??"M").slice(0,1).toUpperCase()}</span><div><strong>{p.data?.name??"Mi empresa"}</strong><small>Emite las cotizaciones</small></div></div><div className="c-nav-label">COMERCIAL</div><nav>{[["","◫","Resumen"],["clientes","◎","Clientes y prospectos"],["cotizaciones","▤","Cotizaciones"],["facturas","▣","Facturas"],["productos","▦","Productos y servicios"]].map(([path,icon,label])=><NavLink key={path} to={"/comercial"+(path?"/"+path:"")} end={path===""}><span>{icon}</span>{label}</NavLink>)}</nav><div className="c-nav-label">ADMINISTRACIÓN</div><nav><NavLink to="/comercial/empresa"><span>⚙</span>Mi empresa</NavLink><Link to="/lotes"><span>↗</span>Abrir producción</Link></nav><div className="c-sidebar-bottom"><span className="c-dot"/>Versión de desarrollo<small>Usar únicamente datos de prueba.</small></div></aside><div className="c-workspace"><div className="c-topbar"><span>Grupo Titán <b>/</b> Área comercial</span><span className="c-environment">{/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"DESARROLLO LOCAL":"VERSIÓN DE PRUEBA"}</span>{quien}</div><main><Routes><Route index element={<Dashboard/>}/><Route path="clientes" element={<Customers/>}/><Route path="clientes/:id" element={<CustomerDetail/>}/><Route path="productos" element={<Catalog/>}/><Route path="cotizaciones" element={<Quotes/>}/><Route path="cotizaciones/nueva" element={<QuoteEditor/>}/><Route path="cotizaciones/:id/editar" element={<QuoteEditor/>}/><Route path="cotizaciones/:id" element={<QuoteDetail/>}/><Route path="facturas" element={<Facturas/>}/><Route path="facturas/nueva" element={<FacturaNueva/>}/><Route path="facturas/:id" element={<FacturaDetail/>}/><Route path="empresa" element={<Settings onSaved={p.reload}/>}/><Route path="*" element={<Empty title="Página no encontrada"><Link to="/comercial">Volver al resumen</Link></Empty>}/></Routes></main><footer className="c-workspace-footer"><span>GRUPO TITÁN · BLOQUES Y CONSTRUCCIÓN</span><span className="c-credito-proveedor">Tecnología de RootMint</span><span>USD · El Salvador</span></footer></div></div>
+ return <div id="commercial"><aside className="c-sidebar"><Link className="c-logo" to="/comercial"><span>▥</span> GRUPO TITÁN<small>ÁREA COMERCIAL</small></Link><div className="c-company"><span>{(p.data?.name??"M").slice(0,1).toUpperCase()}</span><div><strong>{p.data?.name??"Mi empresa"}</strong><small>Emite las cotizaciones</small></div></div><div className="c-nav-label">COMERCIAL</div><nav>{[["","◫","Resumen"],["clientes","◎","Clientes y prospectos"],["cotizaciones","▤","Cotizaciones"],["facturas","▣","Facturas"],["inventario","▧","Inventario"],["productos","▦","Productos y servicios"]].map(([path,icon,label])=><NavLink key={path} to={"/comercial"+(path?"/"+path:"")} end={path===""}><span>{icon}</span>{label}</NavLink>)}</nav><div className="c-nav-label">ADMINISTRACIÓN</div><nav><NavLink to="/comercial/empresa"><span>⚙</span>Mi empresa</NavLink><Link to="/lotes"><span>↗</span>Abrir producción</Link></nav><div className="c-sidebar-bottom"><span className="c-dot"/>Versión de desarrollo<small>Usar únicamente datos de prueba.</small></div></aside><div className="c-workspace"><div className="c-topbar"><span>Grupo Titán <b>/</b> Área comercial</span><span className="c-environment">{/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"DESARROLLO LOCAL":"VERSIÓN DE PRUEBA"}</span>{quien}</div><main><Routes><Route index element={<Dashboard/>}/><Route path="clientes" element={<Customers/>}/><Route path="clientes/:id" element={<CustomerDetail/>}/><Route path="productos" element={<Catalog/>}/><Route path="cotizaciones" element={<Quotes/>}/><Route path="cotizaciones/nueva" element={<QuoteEditor/>}/><Route path="cotizaciones/:id/editar" element={<QuoteEditor/>}/><Route path="cotizaciones/:id" element={<QuoteDetail/>}/><Route path="facturas" element={<Facturas/>}/><Route path="facturas/nueva" element={<FacturaNueva/>}/><Route path="facturas/:id" element={<FacturaDetail/>}/><Route path="inventario" element={<Inventario/>}/><Route path="empresa" element={<Settings onSaved={p.reload}/>}/><Route path="*" element={<Empty title="Página no encontrada"><Link to="/comercial">Volver al resumen</Link></Empty>}/></Routes></main><footer className="c-workspace-footer"><span>GRUPO TITÁN · BLOQUES Y CONSTRUCCIÓN</span><span className="c-credito-proveedor">Tecnología de RootMint</span><span>USD · El Salvador</span></footer></div></div>
 }
 

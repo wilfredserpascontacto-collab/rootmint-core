@@ -1,11 +1,16 @@
 export type Precio = { id:string; customerId:string; catalogItemId?:string|null; description:string; unitPriceCents:number; unit?:string|null; notes?:string|null };
 export type NotaPlata = { id:string; customerId:string; notedOn:string; body:string };
 export type Customer = { id:string; name:string; creditLimitCents?:number|null; creditTermDays?:number|null; type:"person"|"company"; stage:"prospect"|"customer"; phone?:string; email?:string; address?:string; nit?:string; nrc?:string; notes?:string; active:boolean };
-export type Item = { id:string; name:string; code:string; type:"product"|"service"; unit:string; unitPriceCents:number; category?:string; active:boolean };
+export type Item = { id:string; name:string; code:string; type:"product"|"service"; unit:string; unitPriceCents:number; category?:string; blockTypeId?:string|null; active:boolean };
 export type Profile = { name:string; phone?:string; email?:string; address?:string; nit?:string; terms?:string };
 export type Line = { catalogItemId?:string|null; description:string; quantity:number; unitPriceCents:number; subtotalCents?:number };
 /** El renglón mientras se edita: el precio vive como texto para no perder lo que se teclea. */
 export type Renglon = { catalogItemId?:string; description:string; quantity:number; precio:string; tocado?:boolean };
+export type Existencia = { blockTypeId:string; code:string; name:string; existencia:number; catalogItemId:string|null; catalogItemName:string|null; unitPriceCents:number|null };
+export type MovimientoInv = { id:string; blockTypeId:string; quantity:number; reason:string; refType?:string|null; note?:string|null; notedAt:string };
+/** Lo que falta fabricar de una cotización, renglón por renglón. */
+export type QueProducir = { quoteLineId:string; description:string; pedido:number; esProducible:boolean; sinEnlazar:boolean; enExistencia:number|null; hayQueProducir:number|null; blockTypeId:string|null; blockTypeName:string|null };
+export const MOTIVO_INV:Record<string,string>={produccion:"Producción",venta:"Venta",ajuste:"Ajuste",rotura:"Rotura",devolucion:"Devolución"};
 export type Factura = { id:string; kind:"ccf"|"final"; number:number; customerId:string; quoteId?:string|null; issueDate:string; status:"issued"|"annulled"; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli:number; notes?:string|null; annulledAt?:string|null; annulReason?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
 /** Un renglón de la cotización con lo que ya se facturó y lo que falta. */
 export type PorFacturar = { quoteLineId:string; description:string; unitPriceCents:number; cotizado:number; facturado:number; pendiente:number };
