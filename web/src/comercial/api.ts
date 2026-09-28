@@ -11,6 +11,9 @@ export type MovimientoInv = { id:string; blockTypeId:string; quantity:number; re
 /** Lo que falta fabricar de una cotización, renglón por renglón. */
 export type QueProducir = { quoteLineId:string; description:string; pedido:number; esProducible:boolean; sinEnlazar:boolean; enExistencia:number|null; hayQueProducir:number|null; blockTypeId:string|null; blockTypeName:string|null };
 export const MOTIVO_INV:Record<string,string>={produccion:"Producción",venta:"Venta",ajuste:"Ajuste",rotura:"Rotura",devolucion:"Devolución"};
+/** Una orden de producción vista desde el área comercial: lo que se le mandó a fabricar a la planta. */
+export type Orden = { id:string; number:number; quoteId:string|null; customerName:string|null; status:"pendiente"|"en_proceso"|"terminada"|"anulada"; neededBy:string|null; notes:string|null; pedido:number; producido:number; falta:number; avisos?:string[] };
+export const ESTADO_ORDEN:Record<string,string>={pendiente:"Pendiente",en_proceso:"En proceso",terminada:"Terminada",anulada:"Anulada"};
 export type Factura = { id:string; kind:"ccf"|"final"; number:number; customerId:string; quoteId?:string|null; issueDate:string; status:"issued"|"annulled"; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli:number; notes?:string|null; annulledAt?:string|null; annulReason?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
 /** Un renglón de la cotización con lo que ya se facturó y lo que falta. */
 export type PorFacturar = { quoteLineId:string; description:string; unitPriceCents:number; cotizado:number; facturado:number; pendiente:number };

@@ -13,7 +13,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { and, eq, ne, isNull, desc, inArray } from "drizzle-orm";
+import { and, eq, ne, isNull, desc, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
@@ -26,11 +26,14 @@ import {
   units,
   blockTypes,
   maintenanceLogs,
+  productionOrders,
+  productionOrderLines,
 } from "../db/schema-bloques.js";
 import { counters } from "../db/schema.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { moverInventario } from "./inventario.js";
+import { revisarOrden } from "./ordenes.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { recetaConCosto, fichaDelLote, lotesRecientes, leerResolver } from "../bloques/servicio.js";
 import { vencidasAhora } from "../bloques/mantenimiento.js";
@@ -217,6 +220,12 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
 
   const loteSchema = z.object({
     recipeId: z.string().uuid(),
+    /**
+     * Contra qué orden se corre. Opcional a propósito: producir para tener
+     * existencia, sin que nadie lo haya pedido, es normal en una bloquera y
+     * no debería costar un trámite.
+     */
+    productionOrderId: z.string().uuid().optional(),
     producedAt: z.coerce.date().optional(),
     mixes: z.number().int().positive().max(TOPES.mezclas).default(1),
     blocksGood: z.number().int().nonnegative().max(TOPES.bloques).default(0),
@@ -234,6 +243,41 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
 
     const [receta] = await db.select().from(recipes).where(eq(recipes.id, body.recipeId));
     if (!receta) return reply.code(400).send({ error: "La receta no existe" });
+
+    /**
+     * La orden se valida ANTES de abrir la transacción, no adentro.
+     *
+     * Es la lección de la sesión pasada: en modo local la base es de una sola
+     * conexión, y consultar desde dentro de una transacción abierta traba el
+     * proceso entero sin dar error. Lo que se puede preguntar antes, se
+     * pregunta antes.
+     */
+    if (body.productionOrderId) {
+      const [orden] = await db
+        .select()
+        .from(productionOrders)
+        .where(eq(productionOrders.id, body.productionOrderId));
+      if (!orden) return reply.code(400).send({ error: "Esa orden de producción no existe." });
+      if (orden.status === "anulada") {
+        return reply.code(409).send({
+          error: `La orden N° ${orden.number} está anulada. Si el bloque se fabricó igual, cerrá el lote sin orden: el bloque existe aunque la orden no.`,
+        });
+      }
+      const [renglon] = await db
+        .select()
+        .from(productionOrderLines)
+        .where(
+          and(
+            eq(productionOrderLines.orderId, body.productionOrderId),
+            eq(productionOrderLines.blockTypeId, receta.blockTypeId),
+          ),
+        );
+      if (!renglon) {
+        return reply.code(409).send({
+          error: `La orden N° ${orden.number} no pide este tipo de bloque. Elegí la receta que corresponde, o cerrá el lote sin orden.`,
+        });
+      }
+    }
 
     const lineas = await db
       .select({
@@ -286,6 +330,7 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
           number: numero,
           recipeId: body.recipeId,
           blockTypeId: receta.blockTypeId,
+          productionOrderId: body.productionOrderId ?? null,
           producedAt: body.producedAt ?? new Date(),
           mixes: body.mixes,
           blocksGood: body.blocksGood,
@@ -330,10 +375,23 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
         action: "create",
         newValues: lote,
       });
-      return lote;
+
+      /**
+       * Y la orden se entera en el mismo acto.
+       *
+       * Si esto viviera fuera de la transacción, un fallo entre las dos cosas
+       * dejaría una orden diciendo que le falta lo que ya está fabricado. El
+       * aviso que vuelve es lo que la planta lee después de cerrar: «quedó
+       * terminada» o «le faltan tantos».
+       */
+      const aviso = body.productionOrderId
+        ? await revisarOrden(tx, body.productionOrderId, getUserId(req))
+        : null;
+      return { lote, aviso };
     });
 
-    return reply.code(201).send(await fichaDelLote(creado.id));
+    const ficha = await fichaDelLote(creado.lote.id);
+    return reply.code(201).send(creado.aviso ? { ...ficha, avisos: [creado.aviso] } : ficha);
   });
 
   /**
@@ -380,6 +438,12 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
           note: `Recuento del lote ${after.number}: de ${before.blocksGood} a ${body.blocksGood}`,
           userId: getUserId(req),
         });
+
+        // Y su orden se vuelve a mirar: recontar para abajo puede reabrir lo
+        // que el conteo anterior daba por terminado.
+        if (after.productionOrderId) {
+          await revisarOrden(tx, after.productionOrderId, getUserId(req));
+        }
       }
 
       await logActivity(tx, {
@@ -487,6 +551,7 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
         name: recipes.name,
         status: recipes.status,
         expectedBlocksPerMix: recipes.expectedBlocksPerMix,
+        blockTypeId: recipes.blockTypeId,
         tipoBloque: blockTypes.name,
         tipoCodigo: blockTypes.code,
       })
@@ -505,7 +570,74 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
       .orderBy(desc(batches.producedAt))
       .limit(1);
 
-    return { recetas: recetasDisponibles, enPrueba, ultimoLote: enCurso[0] ?? null };
+    /**
+     * Lo que hay pedido, para que la planta no tenga que preguntar.
+     *
+     * Va acá y no en otra pantalla porque esta es la pantalla que se mira de
+     * pie frente a la máquina. Si la orden vive en otro lado, lo que llega a
+     * la planta sigue siendo un mensaje de WhatsApp.
+     */
+    const abiertas = await db
+      .select({
+        id: productionOrders.id,
+        number: productionOrders.number,
+        customerName: productionOrders.customerName,
+        neededBy: productionOrders.neededBy,
+        status: productionOrders.status,
+        notes: productionOrders.notes,
+      })
+      .from(productionOrders)
+      .where(
+        and(
+          inArray(productionOrders.status, ["pendiente", "en_proceso"]),
+          isNull(productionOrders.deletedAt),
+        ),
+      );
+
+    const renglones =
+      abiertas.length === 0
+        ? []
+        : await db
+            .select()
+            .from(productionOrderLines)
+            .where(inArray(productionOrderLines.orderId, abiertas.map((o) => o.id)));
+
+    const hechos =
+      abiertas.length === 0
+        ? []
+        : await db
+            .select({
+              orderId: batches.productionOrderId,
+              blockTypeId: batches.blockTypeId,
+              buenos: sql<number>`sum(${batches.blocksGood})::int`,
+            })
+            .from(batches)
+            .where(
+              and(inArray(batches.productionOrderId, abiertas.map((o) => o.id)), isNull(batches.deletedAt)),
+            )
+            .groupBy(batches.productionOrderId, batches.blockTypeId);
+    const hecho = new Map(hechos.map((h) => [`${h.orderId}:${h.blockTypeId}`, Number(h.buenos) || 0]));
+
+    const ordenes = abiertas
+      .map((o) => {
+        const suyos = renglones
+          .filter((r) => r.orderId === o.id)
+          .map((r) => ({
+            blockTypeId: r.blockTypeId,
+            description: r.description,
+            quantity: r.quantity,
+            producido: hecho.get(`${o.id}:${r.blockTypeId}`) ?? 0,
+            falta: Math.max(0, r.quantity - (hecho.get(`${o.id}:${r.blockTypeId}`) ?? 0)),
+          }));
+        return { ...o, lines: suyos, falta: suyos.reduce((s, r) => s + r.falta, 0) };
+      })
+      .sort((a, b) => {
+        const fa = a.neededBy ? new Date(a.neededBy).getTime() : Infinity;
+        const fb = b.neededBy ? new Date(b.neededBy).getTime() : Infinity;
+        return fa - fb;
+      });
+
+    return { recetas: recetasDisponibles, enPrueba, ultimoLote: enCurso[0] ?? null, ordenes };
   });
 
   // --- Arrancar de cero ----------------------------------------------------

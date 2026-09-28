@@ -18,6 +18,7 @@ export default function Planta() {
   const navegar = useNavigate();
   const { dato: orden, error, cargando } = useApi<OrdenDelDia>("/bloques/orden-del-dia");
 
+  const [ordenId, setOrdenId] = useState<string>("");
   const [recetaId, setRecetaId] = useState<string>("");
   const [mezclas, setMezclas] = useState(1);
   const [buenos, setBuenos] = useState(0);
@@ -33,20 +34,41 @@ export default function Planta() {
    * planta nueva no podría dar el primer paso nunca. Lo que sí hace el
    * software es no dejar que esa diferencia pase desapercibida.
    */
-  const corribles = [...(orden?.recetas ?? []), ...(orden?.enPrueba ?? [])];
+  const todasLasRecetas = [...(orden?.recetas ?? []), ...(orden?.enPrueba ?? [])];
+  const pedidos = orden?.ordenes ?? [];
+  const elegida = pedidos.find((o) => o.id === ordenId) ?? null;
+
+  /**
+   * Con una orden elegida, solo se ofrecen las recetas que dan ESE bloque.
+   *
+   * No es una restricción: es dejar de pedirle al maquinista que haga de
+   * traductor entre «la orden 14 pide bloque de 15» y «cuál de las seis
+   * mezclas de la lista da bloque de 15».
+   */
+  const corribles = elegida
+    ? todasLasRecetas.filter((r) => elegida.lines.some((l) => l.blockTypeId === r.blockTypeId))
+    : todasLasRecetas;
 
   useEffect(() => {
-    if (!recetaId && corribles[0]) setRecetaId(corribles[0].id);
-  }, [orden, recetaId]);
+    if (!corribles.some((r) => r.id === recetaId)) setRecetaId(corribles[0]?.id ?? "");
+  }, [orden, ordenId, recetaId]);
 
   if (cargando) return <main className="lienzo"><Cargando que="la orden del día" /></main>;
   if (error) return <main className="lienzo"><Fallo error={error} /></main>;
 
   const receta = corribles.find((r) => r.id === recetaId) ?? null;
+  /** Cuántos pide la orden de justo este bloque, y cuántos faltan todavía. */
+  const renglon = elegida && receta
+    ? elegida.lines.find((l) => l.blockTypeId === receta.blockTypeId) ?? null
+    : null;
   const sinRespaldo = receta !== null && receta.status !== "validated";
   const porMezcla = receta?.expectedBlocksPerMix ?? 0;
   const esperados = porMezcla * mezclas;
   const contados = buenos + rotos;
+  const validadas = corribles.filter((r) => r.status === "validated");
+  const enPrueba = corribles.filter((r) => r.status !== "validated");
+  const mezclasParaCumplir =
+    renglon && porMezcla > 0 ? Math.max(1, Math.ceil(renglon.falta / porMezcla)) : mezclas;
 
   async function cerrar() {
     if (!receta) return;
@@ -55,18 +77,19 @@ export default function Planta() {
     try {
       const ficha = await api.post<Ficha>("/bloques/lotes", {
         recipeId: receta.id,
+        productionOrderId: ordenId || undefined,
         mixes: mezclas,
         blocksGood: buenos,
         blocksBroken: rotos,
       });
-      navegar(`/lotes/${ficha.lote.id}`);
+      navegar(`/lotes/${ficha.lote.id}`, { state: { avisos: ficha.avisos ?? [] } });
     } catch (e) {
       setFalla(e instanceof Error ? e.message : String(e));
       setGuardando(false);
     }
   }
 
-  if (!orden || corribles.length === 0) {
+  if (!orden || todasLasRecetas.length === 0) {
     return (
       <main className="lienzo planta">
         <div className="aviso ambar">
@@ -82,6 +105,66 @@ export default function Planta() {
 
   return (
     <main className="lienzo planta">
+      {/* --- Lo que hay pedido. Va primero: es la razón de encender la máquina. --- */}
+      {pedidos.length > 0 ? (
+        <div className="tarjeta pila" style={{ gap: 14, padding: 20 }}>
+          <span className="lbl">Qué hay pedido</span>
+          <select
+            className="entrada"
+            value={ordenId}
+            onChange={(e) => {
+              setOrdenId(e.target.value);
+              setBuenos(0);
+              setRotos(0);
+            }}
+            style={{ fontFamily: "var(--texto)", fontSize: 18 }}
+            aria-label="Qué hay pedido"
+          >
+            <option value="">Sin orden · producir para tener existencia</option>
+            {pedidos.map((o) => (
+              <option key={o.id} value={o.id}>
+                Orden N° {o.number}
+                {o.customerName ? ` · ${o.customerName}` : ""} · faltan {o.falta}
+              </option>
+            ))}
+          </select>
+          {elegida ? (
+            <div className="pila" style={{ gap: 6 }}>
+              {elegida.lines.map((l) => (
+                <span key={l.blockTypeId} style={{ fontSize: 16 }}>
+                  <strong>{l.falta}</strong> de {l.description}
+                  {l.producido > 0 ? (
+                    <span style={{ color: "var(--apagado)" }}> · van {l.producido} de {l.quantity}</span>
+                  ) : null}
+                </span>
+              ))}
+              {elegida.neededBy ? (
+                <span style={{ fontSize: 15, color: "var(--apagado)" }}>
+                  Se necesita para el {new Date(elegida.neededBy).toLocaleDateString("es-SV")}
+                </span>
+              ) : null}
+              {elegida.notes ? (
+                <span style={{ fontSize: 15, color: "var(--apagado)" }}>{elegida.notes}</span>
+              ) : null}
+            </div>
+          ) : (
+            <span style={{ fontSize: 15, color: "var(--apagado)" }}>
+              Lo que se produzca sin orden entra igual al patio. La orden sirve para saber a
+              quién le corresponde.
+            </span>
+          )}
+        </div>
+      ) : null}
+
+      {elegida && corribles.length === 0 ? (
+        <div className="aviso ambar">
+          <span>
+            No hay ninguna receta cargada que dé el bloque que pide esta orden. Armala desde
+            Recetas, o elegí «Sin orden» y corré lo que sí hay.
+          </span>
+        </div>
+      ) : null}
+
       {/* --- La orden: qué correr --- */}
       <div className="tarjeta pila" style={{ gap: 14, padding: 20 }}>
         <span className="lbl">Qué se corre hoy</span>
@@ -92,18 +175,18 @@ export default function Planta() {
           style={{ fontFamily: "var(--texto)", fontSize: 18 }}
           aria-label="Qué se corre hoy"
         >
-          {orden.recetas.length > 0 ? (
+          {validadas.length > 0 ? (
             <optgroup label="Validadas por un ensayo">
-              {orden.recetas.map((r) => (
+              {validadas.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name} — {r.tipoBloque ?? r.tipoCodigo}
                 </option>
               ))}
             </optgroup>
           ) : null}
-          {orden.enPrueba.length > 0 ? (
+          {enPrueba.length > 0 ? (
             <optgroup label="En prueba · todavía sin ensayo">
-              {orden.enPrueba.map((r) => (
+              {enPrueba.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name} — {r.tipoBloque ?? r.tipoCodigo}
                 </option>
@@ -114,7 +197,23 @@ export default function Planta() {
         <span style={{ fontSize: 15, color: "var(--apagado)" }}>
           {porMezcla} bloques por mezcla · se esperan <strong>{esperados}</strong> con {mezclas}{" "}
           {mezclas === 1 ? "mezcla" : "mezclas"}
+          {renglon ? (
+            <>
+              {" "}· la orden pide <strong>{renglon.falta}</strong> más
+            </>
+          ) : null}
         </span>
+        {/*
+          Cuántas mezclas hacen falta para cumplir la orden. Es una cuenta que
+          el maquinista puede hacer de cabeza, y precisamente por eso no debería
+          tener que hacerla parado frente a la máquina con el sol encima.
+        */}
+        {renglon && porMezcla > 0 && mezclasParaCumplir !== mezclas ? (
+          <button className="boton hueco" onClick={() => setMezclas(mezclasParaCumplir)}>
+            Poner las {mezclasParaCumplir} {mezclasParaCumplir === 1 ? "mezcla" : "mezclas"} que
+            cubren la orden
+          </button>
+        ) : null}
       </div>
 
       {sinRespaldo ? (

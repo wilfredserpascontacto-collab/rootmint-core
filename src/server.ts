@@ -16,6 +16,7 @@ import { businessProfileRoutes } from "./routes/business-profile.js";
 import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { invoicesRoutes } from "./routes/invoices.js";
 import { inventarioRoutes } from "./routes/inventario.js";
+import { ordenesRoutes } from "./routes/ordenes.js";
 import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
 import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
 import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
@@ -183,6 +184,7 @@ export async function buildServer() {
   await app.register(customerFinanceRoutes);
   await app.register(invoicesRoutes);
   await app.register(inventarioRoutes);
+  await app.register(ordenesRoutes);
 
   // Módulo de fabricación de bloques
   await app.register(bloquesCatalogoRoutes);

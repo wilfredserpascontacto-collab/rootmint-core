@@ -215,6 +215,8 @@ export interface Ficha {
     origenLectura: "person" | "machine";
   } | null;
   objetivo: { mpaMilli: number; criterio: "neta" | "bruta" };
+  /** Sólo al cerrar un lote contra una orden: si quedó terminada o cuánto le falta. */
+  avisos?: string[];
 }
 
 export interface LoteResumen {
@@ -294,8 +296,35 @@ export interface RecetaCorrible {
   name: string;
   status: string;
   expectedBlocksPerMix: number | null;
+  blockTypeId: string;
   tipoBloque: string | null;
   tipoCodigo: string | null;
+}
+
+/** Un renglón de una orden: qué bloque, cuántos, y cuántos van. */
+export interface RenglonOrden {
+  blockTypeId: string;
+  description: string;
+  quantity: number;
+  producido: number;
+  falta: number;
+}
+
+export type EstadoOrden = "pendiente" | "en_proceso" | "terminada" | "anulada";
+
+export interface OrdenProduccion {
+  id: string;
+  number: number;
+  quoteId: string | null;
+  customerName: string | null;
+  status: EstadoOrden;
+  neededBy: string | null;
+  notes: string | null;
+  closedAt: string | null;
+  closeReason: string | null;
+  createdAt: string;
+  lines: RenglonOrden[];
+  falta: number;
 }
 
 export interface OrdenDelDia {
@@ -304,6 +333,8 @@ export interface OrdenDelDia {
   /** Todavía sin ensayo que las respalde. Se pueden correr; no se pueden prometer. */
   enPrueba: RecetaCorrible[];
   ultimoLote: { id: string; number: number } | null;
+  /** Lo que hay pedido y todavía no está fabricado. Lo más urgente primero. */
+  ordenes: OrdenProduccion[];
 }
 
 export interface Unidad {

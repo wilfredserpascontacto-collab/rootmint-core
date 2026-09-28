@@ -3,6 +3,7 @@ import Comercial from "./comercial/Comercial";
 import Lotes from "./pantallas/Lotes";
 import FichaLote from "./pantallas/FichaLote";
 import Planta from "./pantallas/Planta";
+import Ordenes, { FichaOrden } from "./pantallas/Ordenes";
 import Recetas from "./pantallas/Recetas";
 import Receta from "./pantallas/Receta";
 import Mantenimiento from "./pantallas/Mantenimiento";
@@ -45,6 +46,7 @@ export default function App() {
         <nav className="nav">
           <NavLink to="/comercial">Comercial</NavLink>
           <NavLink to="/lotes" className={({ isActive }) => (isActive ? "activo" : "")}>Lotes</NavLink>
+          <NavLink to="/ordenes" className={({ isActive }) => (isActive ? "activo" : "")}>Órdenes</NavLink>
           <NavLink to="/planta" className={({ isActive }) => (isActive ? "activo" : "")}>Planta</NavLink>
           <NavLink to="/recetas" className={({ isActive }) => (isActive ? "activo" : "")}>Recetas</NavLink>
           <NavLink to="/mantenimiento" className={({ isActive }) => (isActive ? "activo" : "")}>Mantenimiento</NavLink>
@@ -61,6 +63,8 @@ export default function App() {
         <Route path="/" element={<Navigate to="/lotes" replace />} />
         <Route path="/lotes" element={<Lotes />} />
         <Route path="/lotes/:id" element={<FichaLote />} />
+        <Route path="/ordenes" element={<Ordenes />} />
+        <Route path="/ordenes/:id" element={<FichaOrden />} />
         <Route path="/planta" element={<Planta />} />
         <Route path="/recetas" element={<Recetas />} />
         <Route path="/recetas/:id" element={<Receta />} />

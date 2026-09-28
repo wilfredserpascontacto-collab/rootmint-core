@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, Link, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
-import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata, type Factura, type PorFacturar, TIPO_FACTURA, numeroFactura, MOTIVO_INV, type Existencia, type MovimientoInv, type QueProducir } from "./api";
+import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata, type Factura, type PorFacturar, TIPO_FACTURA, numeroFactura, MOTIVO_INV, type Existencia, type MovimientoInv, type QueProducir, type Orden, ESTADO_ORDEN } from "./api";
 import "./comercial.css";
 
 function useData<T>(path:string) {
@@ -312,6 +312,25 @@ function QuoteDetail(){
  const pf=useData<{lines:PorFacturar[]}>("/quotes/"+id+"/por-facturar");
  // Lo que pidieron en la reunión: que la cotización sepa si ya está fabricado.
  const qp=useData<{lines:QueProducir[];avisos:string[]}>("/quotes/"+id+"/que-producir");
+ // Y si ya se le mandó fabricar a la planta, con qué orden y cómo va.
+ const od=useData<Orden[]>("/ordenes?estado=todas&quoteId="+id);
+ const [avisosOrden,setAvisosOrden]=useState<string[]>([]);
+ const ordenViva=(od.data??[]).find(o=>o.status==="pendiente"||o.status==="en_proceso")??null;
+ const hayQueProducir=(qp.data?.lines??[]).some(l=>(l.hayQueProducir??0)>0);
+ /**
+  * Pasar la cotización a producción.
+  *
+  * El servidor decide qué entra en la orden: descuenta lo que ya hay en el
+  * patio y lo que otras órdenes abiertas prometieron. Esta pantalla no repite
+  * esa cuenta, porque dos lugares que calculan lo mismo terminan calculándolo
+  * distinto.
+  */
+ async function pasarAProduccion(){
+  if(busy)return;setBusy(true);setFailure("");setAvisosOrden([]);
+  try{const o=await api<Orden>("/ordenes/desde-cotizacion","POST",{quoteId:id});setAvisosOrden(o.avisos??[]);od.reload();qp.reload()}
+  catch(e){setFailure((e as Error).message)}
+  finally{setBusy(false)}
+ }
  const falta=(pf.data?.lines??[]).filter(l=>l.pendiente>0);
  const algoFacturado=(pf.data?.lines??[]).some(l=>l.facturado>0);
  async function facturar(){
@@ -337,7 +356,23 @@ function QuoteDetail(){
    <td className="c-num"><strong>{l.hayQueProducir===0?"—":(l.hayQueProducir??0).toLocaleString("es-SV")}</strong></td>
   </tr>)}</tbody></table></div>
   {qp.data.avisos.length>0&&<ul className="c-avisos" role="status" style={{marginTop:10}}>{qp.data.avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}
-  <p className="c-ficha-nota">El número sale del inventario, que se llena solo cuando se cierra un lote en producción. <Link to="/comercial/inventario">Ver el patio</Link>.</p>
+  {avisosOrden.length>0&&<ul className="c-avisos" role="status" style={{marginTop:10}}>{avisosOrden.map((a,i)=><li key={i}>{a}</li>)}</ul>}
+  {/* Las órdenes que ya salieron de esta cotización, con su avance. */}
+  {(od.data??[]).map(o=><p key={o.id} className="c-ficha-nota" style={{marginTop:10}}>
+   <Link to={"/ordenes/"+o.id}><strong>Orden N° {o.number}</strong></Link> · {ESTADO_ORDEN[o.status]} · llevan {o.producido} de {o.pedido} bloques{o.falta>0&&o.status!=="anulada"?`, faltan ${o.falta}`:""}.
+  </p>)}
+  <div className="c-statusbar" style={{marginTop:10}}>
+   {!ordenViva&&hayQueProducir&&<button className="c-primary" disabled={busy} onClick={pasarAProduccion}>Pasar a producción</button>}
+   {ordenViva&&<Link className="c-link" to={"/ordenes/"+ordenViva.id}>Ver la orden en la planta →</Link>}
+   <Link className="c-link" to="/comercial/inventario">Ver el patio</Link>
+  </div>
+  <p className="c-ficha-nota">
+   {ordenViva
+    ?"La planta ya tiene la orden. Lo que se produzca contra ella entra al patio y descuenta lo que falta, sin que nadie lo escriba."
+    :hayQueProducir
+     ?"«Pasar a producción» le manda a la planta lo que falta fabricar —no lo que se vendió—, ya descontado lo que hay en el patio."
+     :"No hace falta mandar nada a fabricar: lo que pide esta cotización ya está en el patio."}
+  </p>
  </section>}
  {pf.data&&<p className="c-ficha-nota">{falta.length===0?"Esta cotización ya está facturada por completo.":algoFacturado?`Falta facturar: ${falta.map(l=>`${l.pendiente} de ${l.description}`).join(", ")}.`:"Todavía no se ha facturado nada de esta cotización."}</p>}{avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}<ErrorBox message={failure}/></div>
  <article className="c-paper"><div className="c-paper-top"><div><span className="c-paper-mark">▥</span><h2>{business?.name??"Empresa · documento anterior"}</h2><p>{business?.address}</p><p>{[business?.phone,business?.email].filter(Boolean).join(" · ")}</p>{business?.nit&&<p>NIT {business.nit}</p>}</div><div className="c-paper-number"><span>COTIZACIÓN</span><h2>{number(quote.number)}</h2><p>Emisión: {date(quote.issueDate)}</p><p>Válida hasta: {date(expires.toISOString())}</p><Badge status={quote.status}/></div></div>

@@ -64,6 +64,21 @@ export const testSourceEnum = pgEnum("test_source", ["plant", "lab"]);
  */
 export const dataSourceEnum = pgEnum("data_source", ["person", "machine"]);
 
+/**
+ * En que anda una orden de produccion.
+ *
+ * "en_proceso" no lo pone nadie: lo pone el primer lote que se corre contra
+ * la orden. "terminada" tampoco: lo pone el lote que completa lo pedido. Los
+ * dos estados que si son una decision de una persona son el de nacimiento y
+ * el de anulacion.
+ */
+export const productionOrderStatusEnum = pgEnum("production_order_status", [
+  "pendiente",
+  "en_proceso",
+  "terminada",
+  "anulada",
+]);
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -207,6 +222,84 @@ export const recipeLines = pgTable(
   (t) => ({ porReceta: index("recipe_lines_recipe_idx").on(t.recipeId) }),
 );
 
+// --- La orden de produccion ------------------------------------------------
+
+/**
+ * El papel que le dice al maquinista que fabricar.
+ *
+ * Es la pieza que faltaba para cerrar el circulo que pidieron en la reunion:
+ * la cotizacion se "pasa" a produccion y baja a la planta convertida en una
+ * orden. Sin esto, lo que llegaba a la planta era un mensaje de WhatsApp.
+ *
+ * Tres decisiones que valen mas que el codigo:
+ *
+ *  1. **La orden nace de lo que FALTA, no de lo pedido.** Si el cliente pide
+ *     1.000 bloques y en el patio hay 540, la orden dice 460. Es literalmente
+ *     lo que pidieron: "que el mismo sistema detecte que si el producto ya
+ *     esta en inventario, no hace falta producirlo".
+ *
+ *  2. **La cantidad se congela al crear la orden.** Si manana el patio cambia,
+ *     la orden no cambia sola. El maquinista tiene que poder confiar en que el
+ *     papel dice hoy lo mismo que decia ayer; un numero que se mueve solo
+ *     mientras alguien trabaja contra el no es una orden, es una sugerencia.
+ *
+ *  3. **Se congela para quien es.** El nombre del cliente queda escrito, no
+ *     referenciado, por la misma razon que en las cotizaciones y facturas: si
+ *     el cliente se renombra o se archiva, la orden de marzo tiene que seguir
+ *     diciendo para quien se corrio.
+ */
+export const productionOrders = pgTable(
+  "production_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Correlativo propio. Es lo que se dice en voz alta: "corré la 14". */
+    number: integer("number").notNull().unique(),
+    /**
+     * De que cotizacion salio, si salio de una. Es un uuid pelado y no una
+     * llave foranea a proposito, igual que `catalog_items.block_type_id`: el
+     * modulo de fabricacion no depende del comercial, se toca con el.
+     */
+    quoteId: uuid("quote_id"),
+    /** Para quien es, congelado. Null en una orden que no sale de un pedido. */
+    customerName: text("customer_name"),
+    status: productionOrderStatusEnum("status").notNull().default("pendiente"),
+    /** Para cuando se necesita. Sirve para ordenar la cola de la planta. */
+    neededBy: timestamp("needed_by", { withTimezone: true }),
+    notes: text("notes"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by").references(() => users.id),
+    /** Por que se cerro o se anulo. Un cierre sin explicacion no sirve. */
+    closeReason: text("close_reason"),
+    createdBy: uuid("created_by").references(() => users.id),
+    ...timestamps,
+  },
+  (t) => ({
+    porEstado: index("production_orders_status_idx").on(t.status),
+    porCotizacion: index("production_orders_quote_idx").on(t.quoteId),
+  }),
+);
+
+export const productionOrderLines = pgTable(
+  "production_order_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productionOrders.id),
+    blockTypeId: uuid("block_type_id")
+      .notNull()
+      .references(() => blockTypes.id),
+    /** Como se llamaba el bloque el dia de la orden. Congelado. */
+    description: text("description").notNull(),
+    /** Cuantos hay que fabricar. Ya descontado lo que habia en el patio. */
+    quantity: integer("quantity").notNull(),
+    /** Que renglon de la cotizacion lo pidio, si vino de una. */
+    quoteLineId: uuid("quote_line_id"),
+    ...timestamps,
+  },
+  (t) => ({ porOrden: index("production_order_lines_order_idx").on(t.orderId) }),
+);
+
 // --- Produccion ------------------------------------------------------------
 
 export const batches = pgTable(
@@ -222,6 +315,14 @@ export const batches = pgTable(
       .notNull()
       .references(() => blockTypes.id),
     producedAt: timestamp("produced_at", { withTimezone: true }).notNull(),
+    /**
+     * Contra que orden se corrio, si se corrio contra alguna.
+     *
+     * Null es un caso legitimo y frecuente: se produce para tener existencia,
+     * sin que nadie lo haya pedido todavia. Eso no es una falta de orden, es
+     * como trabaja una bloquera.
+     */
+    productionOrderId: uuid("production_order_id").references(() => productionOrders.id),
     /** Cuantas mezclas se corrieron con la receta en este lote. */
     mixes: integer("mixes").notNull().default(1),
     blocksGood: integer("blocks_good").notNull().default(0),
@@ -253,7 +354,10 @@ export const batches = pgTable(
     createdBy: uuid("created_by").references(() => users.id),
     ...timestamps,
   },
-  (t) => ({ porFecha: index("batches_produced_at_idx").on(t.producedAt) }),
+  (t) => ({
+    porFecha: index("batches_produced_at_idx").on(t.producedAt),
+    porOrden: index("batches_production_order_idx").on(t.productionOrderId),
+  }),
 );
 
 /** Lo que realmente entro al lote, con nombre y precio congelados. */

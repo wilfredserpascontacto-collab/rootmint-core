@@ -21,7 +21,10 @@ const ok = (b, t, extra = "") => {
   if (!b) fallos++;
 };
 
-const nav = await chromium.launch();
+// En algunos entornos el navegador de Playwright vive en otro lado.
+const nav = await chromium.launch(
+  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
+);
 const ctx = await nav.newContext({ viewport: { width: 1400, height: 1000 } });
 const pag = await ctx.newPage();
 const errores = [];

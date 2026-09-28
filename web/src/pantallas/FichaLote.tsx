@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useApi } from "../usar";
 import { api, cantidad, fecha, money, moneyFino, mpa, unidad, type Ficha } from "../api";
 import { Cargando, Campo, Fallo, IconoAviso, IconoInfo, claseCalidad } from "../comp/piezas";
@@ -15,6 +15,13 @@ import { Cargando, Campo, Fallo, IconoAviso, IconoInfo, claseCalidad } from "../
 export default function FichaLote() {
   const { id } = useParams();
   const { dato, error, cargando, recargar } = useApi<Ficha>(id ? `/bloques/lotes/${id}/ficha` : null);
+  /**
+   * Lo que el servidor dijo al cerrar el lote: si la orden quedo terminada, o
+   * cuanto le falta todavia. Viaja en el estado de la navegacion porque es
+   * sobre el acto de cerrar, no sobre el lote: recargar la pagina no deberia
+   * volver a anunciarlo.
+   */
+  const avisos = (useLocation().state as { avisos?: string[] } | null)?.avisos ?? [];
 
   if (cargando) return <main className="lienzo"><Cargando que="la ficha del lote" /></main>;
   if (error) return <main className="lienzo"><Fallo error={error} /></main>;
@@ -28,6 +35,12 @@ export default function FichaLote() {
 
   return (
     <main className="lienzo">
+      {avisos.map((a, i) => (
+        <div className="aviso" key={i} style={{ marginBottom: 14 }}>
+          <IconoInfo />
+          <span>{a}</span>
+        </div>
+      ))}
       <div className="fila" style={{ justifyContent: "space-between", alignItems: "flex-end", gap: 32, flexWrap: "wrap" }}>
         <div className="pila" style={{ gap: 6 }}>
           <Link to="/lotes" className="lbl" style={{ textDecoration: "none" }}>← Ficha de lote</Link>
