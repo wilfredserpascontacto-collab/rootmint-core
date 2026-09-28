@@ -80,6 +80,18 @@ const t1 = await texto();
 ok(/600/.test(t1), "el patio muestra 600 sin que nadie los escribiera");
 ok(!/630/.test(t1), "los 30 rotos no entraron");
 
+console.log("\n=== el resumen financiero lo ve ===");
+await pag.goto(`${BASE}/#/comercial`, { waitUntil: "networkidle" });
+await pag.waitForTimeout(2000);
+const tr = await texto();
+ok(/Producto disponible/.test(tr), "el resumen tiene la cifra de producto disponible");
+ok(/600/.test(tr), "y muestra los 600 del patio");
+ok(/1 lote/.test(tr), "con cuántos lotes lo produjeron", (tr.match(/de \d+ lotes?/) ?? [])[0]);
+
+await pag.goto(`${BASE}/#/comercial/inventario`, { waitUntil: "networkidle" });
+await pag.waitForTimeout(1800);
+ok(/último:/.test(await texto()), "y el patio dice cuándo fue el último lote");
+
 console.log("\n=== de dónde sale ese número ===");
 await pag.getByRole("button", { name: /De dónde sale/i }).first().click();
 await pag.waitForTimeout(1500);

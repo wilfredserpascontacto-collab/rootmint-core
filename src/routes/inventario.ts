@@ -3,7 +3,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { catalogItems, inventoryMoves, quoteLines, quotes } from "../db/schema.js";
-import { blockTypes } from "../db/schema-bloques.js";
+import { batches, blockTypes } from "../db/schema-bloques.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 
@@ -78,13 +78,34 @@ export async function inventarioRoutes(app: FastifyInstance) {
       .from(catalogItems)
       .where(eq(catalogItems.active, true));
 
+    /**
+     * Cuantos lotes se corrieron de cada tipo, y cuando fue el ultimo.
+     *
+     * No es lo mismo que la existencia y las dos cosas importan: la existencia
+     * dice cuanto hay para entregar hoy, y los lotes dicen cuanto se viene
+     * fabricando. Un tipo con muchos lotes y poca existencia se vende bien; uno
+     * con un lote y todo en el patio, no.
+     */
+    const lotes = await db
+      .select({
+        blockTypeId: batches.blockTypeId,
+        cuantos: sql<number>`count(*)::int`,
+        ultimo: sql<string | null>`max(${batches.producedAt})`,
+      })
+      .from(batches)
+      .groupBy(batches.blockTypeId);
+    const porTipo = new Map(lotes.map((l) => [l.blockTypeId, l]));
+
     return tipos.map((t) => {
       const producto = productos.find((p) => p.blockTypeId === t.id);
+      const l = porTipo.get(t.id);
       return {
         blockTypeId: t.id,
         code: t.code,
         name: t.name,
         existencia: stock.get(t.id) ?? 0,
+        lotes: Number(l?.cuantos) || 0,
+        ultimoLote: l?.ultimo ?? null,
         // Que producto del catalogo corresponde a este bloque, si alguno.
         // Sin esto no se puede saber si lo que un cliente pide ya esta hecho.
         catalogItemId: producto?.id ?? null,
