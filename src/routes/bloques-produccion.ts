@@ -30,6 +30,7 @@ import {
 import { counters } from "../db/schema.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
+import { moverInventario } from "./inventario.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { recetaConCosto, fichaDelLote, lotesRecientes, leerResolver } from "../bloques/servicio.js";
 import { vencidasAhora } from "../bloques/mantenimiento.js";
@@ -301,6 +302,27 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
 
       await tx.insert(batchLines).values(congeladas.map((c) => ({ ...c, batchId: lote.id })));
 
+      /**
+       * Lo que se produjo entra al inventario en el mismo acto.
+       *
+       * En la misma transaccion a proposito: si el lote se guarda y la entrada
+       * no, el patio y el sistema empiezan a decir cosas distintas, y ese
+       * desfase no se descubre hasta que alguien cuenta a mano. O pasan las
+       * dos cosas o no pasa ninguna.
+       *
+       * Solo entran los buenos. Los rotos se contaron al producir y nunca
+       * fueron existencia vendible.
+       */
+      await moverInventario(tx, {
+        blockTypeId: lote.blockTypeId,
+        quantity: lote.blocksGood,
+        reason: "produccion",
+        refType: "batch",
+        refId: lote.id,
+        note: `Lote ${lote.number}`,
+        userId: getUserId(req),
+      });
+
       await logActivity(tx, {
         userId: getUserId(req),
         entity: "batches",
@@ -339,6 +361,27 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
         .set({ ...body, updatedAt: new Date() })
         .where(eq(batches.id, id))
         .returning();
+
+      /**
+       * Si se recontaron los buenos, el inventario se mueve por la DIFERENCIA.
+       *
+       * Recontar 57 donde se habian anotado 60 saca 3 del inventario; no mete
+       * otros 57. El movimiento queda anotado como correccion, con su lote, en
+       * vez de corregir la entrada anterior: asi la historia sigue contando lo
+       * que de verdad paso, incluido el error.
+       */
+      if (after && body.blocksGood !== undefined && before.blocksGood !== body.blocksGood) {
+        await moverInventario(tx, {
+          blockTypeId: after.blockTypeId,
+          quantity: body.blocksGood - before.blocksGood,
+          reason: "ajuste",
+          refType: "batch",
+          refId: id,
+          note: `Recuento del lote ${after.number}: de ${before.blocksGood} a ${body.blocksGood}`,
+          userId: getUserId(req),
+        });
+      }
+
       await logActivity(tx, {
         userId: getUserId(req),
         entity: "batches",

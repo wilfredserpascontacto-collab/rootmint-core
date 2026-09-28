@@ -238,6 +238,18 @@ export const catalogItems = pgTable("catalog_items", {
   unit: text("unit").notNull(),
   unitPriceCents: integer("unit_price_cents").notNull(),
   category: text("category"),
+  /**
+   * Que tipo de bloque es este producto, cuando es un bloque.
+   *
+   * Hasta aca el catalogo comercial y los tipos de bloque de produccion eran
+   * dos mundos que no se conocian: "Bloque 15x20x40" existia dos veces, una
+   * para vender y otra para fabricar, sin nada que dijera que eran el mismo.
+   * Por eso no se podia saber si lo que un cliente pide ya esta hecho.
+   *
+   * Nulo en todo lo que no sea un bloque: la mano de obra, el flete y el
+   * alquiler de formaleta se venden y no se producen.
+   */
+  blockTypeId: uuid("block_type_id"),
   active: boolean("active").notNull().default(true),
   createdBy: uuid("created_by").references(() => users.id),
   ...timestamps,
@@ -293,6 +305,48 @@ export const quoteLines = pgTable("quote_lines", {
   subtotalCents: integer("subtotal_cents").notNull(),
   displayOrder: integer("display_order").notNull().default(0),
   ...timestamps,
+});
+
+// --- Inventario de producto terminado --------------------------------------
+
+/** Por que entro o salio algo del inventario. */
+export const inventoryReasonEnum = pgEnum("inventory_reason", [
+  "produccion",
+  "venta",
+  "ajuste",
+  "rotura",
+  "devolucion",
+]);
+
+/**
+ * Cuantos bloques hay, contado como se cuenta la plata: por movimientos.
+ *
+ * No hay ninguna columna que diga "existencia". La existencia es la suma de
+ * esta tabla, y eso es a proposito: un numero guardado se desincroniza el dia
+ * que alguien escribe mal una correccion, y a partir de ahi nadie vuelve a
+ * creerle. Sumando movimientos, el numero siempre se puede explicar renglon
+ * por renglon — de donde salio cada bloque y adonde se fue.
+ *
+ * Por la misma razon aca no se borra nada. Un error se corrige con otro
+ * movimiento en sentido contrario, igual que en una contabilidad. Borrar una
+ * linea haria que el numero de hoy no coincidiera con la historia de ayer.
+ */
+export const inventoryMoves = pgTable("inventory_moves", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  blockTypeId: uuid("block_type_id").notNull(),
+  /** Positivo entra, negativo sale. Sin excepciones. */
+  quantity: integer("quantity").notNull(),
+  reason: inventoryReasonEnum("reason").notNull(),
+  /**
+   * De donde viene el movimiento: el lote que lo produjo, la factura que lo
+   * saco. Sirve para poder ir del numero al documento que lo explica.
+   */
+  refType: text("ref_type"),
+  refId: uuid("ref_id"),
+  note: text("note"),
+  notedAt: timestamp("noted_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // --- Cobro -----------------------------------------------------------------

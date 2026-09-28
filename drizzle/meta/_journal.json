@@ -57,6 +57,13 @@
       "when": 1790553966381,
       "tag": "0007_factura",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790607731337,
+      "tag": "0008_inventario",
+      "breakpoints": true
     }
   ]
 }

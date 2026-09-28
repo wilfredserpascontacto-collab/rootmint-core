@@ -15,6 +15,7 @@ import { quotesRoutes } from "./routes/quotes.js";
 import { businessProfileRoutes } from "./routes/business-profile.js";
 import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { invoicesRoutes } from "./routes/invoices.js";
+import { inventarioRoutes } from "./routes/inventario.js";
 import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
 import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
 import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
@@ -63,7 +64,7 @@ export async function buildServer() {
 
     // Los archivos de la interfaz se sirven sin sesion: son el HTML y el
     // JavaScript de la propia pantalla de entrada. No llevan datos.
-    const esApi = /^\/(bloques|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|invoices|auth|health)(\/|\?|$)/.test(url);
+    const esApi = /^\/(bloques|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|invoices|inventario|auth|health)(\/|\?|$)/.test(url);
     if (!esApi) return;
 
     req.quien = (await quienViene(req)) ?? undefined;
@@ -181,6 +182,7 @@ export async function buildServer() {
   await app.register(businessProfileRoutes);
   await app.register(customerFinanceRoutes);
   await app.register(invoicesRoutes);
+  await app.register(inventarioRoutes);
 
   // Módulo de fabricación de bloques
   await app.register(bloquesCatalogoRoutes);
@@ -215,7 +217,7 @@ export async function buildServer() {
      */
     app.setNotFoundHandler((req, reply) => {
       const url = req.raw.url ?? "";
-      const esApi = /^\/(bloques|health|auth|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|invoices)(\/|\?|$)/.test(url);
+      const esApi = /^\/(bloques|health|auth|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|invoices|inventario)(\/|\?|$)/.test(url);
       const esAsset = url.startsWith("/assets/") || /\.[a-z0-9]{2,5}(\?|$)/i.test(url);
       if (esApi || esAsset) {
         return reply.code(404).send({ error: "No encontrado" });
