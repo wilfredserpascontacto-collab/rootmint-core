@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // --- Enums -------------------------------------------------------------
@@ -19,6 +20,30 @@ export const catalogItemTypeEnum = pgEnum("catalog_item_type", [
   "service",
   "product",
 ]);
+
+/**
+ * Los dos documentos de cobro que existen en El Salvador.
+ *
+ * No es una diferencia de nombre. Al comprobante de credito fiscal se le
+ * desglosa el IVA aparte del precio, y va para quien presenta su NRC —una
+ * constructora que quiere su credito—. La factura de consumidor final lleva
+ * el IVA ya incluido en el precio, y va para una persona natural o para quien
+ * no da NRC. Cada tipo lleva su propia serie de numeros.
+ *
+ * Los codigos "03" y "01" son los que usa Hacienda para estos documentos; se
+ * dejan escritos aca porque el dia que se conecte la factura electronica van
+ * a hacer falta tal cual.
+ */
+export const invoiceKindEnum = pgEnum("invoice_kind", ["ccf", "final"]);
+
+/**
+ * Una factura emitida no se corrige: se anula y se hace otra.
+ *
+ * Es lo que va a exigir la factura electronica, y es lo unico honesto cuando
+ * el cliente ya tiene el papel en la mano: si el total cambiara despues, el
+ * papel y el sistema dirian cosas distintas y nadie se enteraria.
+ */
+export const invoiceStatusEnum = pgEnum("invoice_status", ["issued", "annulled"]);
 
 export const quoteStatusEnum = pgEnum("quote_status", [
   "draft",
@@ -262,6 +287,81 @@ export const quoteLines = pgTable("quote_lines", {
   catalogItemId: uuid("catalog_item_id").references(() => catalogItems.id),
   // Congelados al momento de crear la línea: la verdad de esta cotización
   // para siempre, independiente de lo que pase luego en el catálogo.
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPriceCents: integer("unit_price_cents").notNull(),
+  subtotalCents: integer("subtotal_cents").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  ...timestamps,
+});
+
+// --- Cobro -----------------------------------------------------------------
+
+/**
+ * La factura: donde la cotizacion se vuelve una deuda.
+ *
+ * Nace de una cotizacion aceptada o de la nada —en una fabrica de bloques
+ * llega gente que compra doscientos sin cotizar nada, y si el sistema no lo
+ * admite esa venta termina en un cuaderno—. Una cotizacion puede dar pie a
+ * varias facturas, porque una obra se entrega por partes y se factura lo que
+ * se va entregando.
+ *
+ * Los totales se guardan igual para los dos tipos: subtotal, IVA y total por
+ * separado. La diferencia entre el credito fiscal y el consumidor final esta
+ * en como se IMPRIME —desglosado o incluido en el precio—, no en cuanto paga
+ * el cliente, que es lo mismo en ambos casos. Guardarlo de una sola forma
+ * evita que dos documentos por la misma mercaderia terminen sumando distinto.
+ */
+export const invoices = pgTable("invoices", {
+  customerSnapshot: jsonb("customer_snapshot"),
+  businessSnapshot: jsonb("business_snapshot"),
+  id: uuid("id").primaryKey().defaultRandom(),
+  kind: invoiceKindEnum("kind").notNull(),
+  /** Correlativo dentro de SU serie: hay una 1 de credito fiscal y una 1 de consumidor final. */
+  number: integer("number").notNull(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .references(() => customers.id),
+  /** De que cotizacion salio, si salio de alguna. */
+  quoteId: uuid("quote_id").references(() => quotes.id),
+  issueDate: timestamp("issue_date", { withTimezone: true }).notNull(),
+  status: invoiceStatusEnum("status").notNull().default("issued"),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
+  taxCents: integer("tax_cents").notNull().default(0),
+  totalCents: integer("total_cents").notNull().default(0),
+  taxRateMilli: integer("tax_rate_milli").notNull().default(0),
+  notes: text("notes"),
+  /**
+   * Anular pide motivo a proposito.
+   *
+   * Un numero anulado sin explicacion es un hueco en la serie que dentro de
+   * seis meses nadie va a saber justificar, y justamente esos huecos son los
+   * que pregunta un auditor.
+   */
+  annulledAt: timestamp("annulled_at", { withTimezone: true }),
+  annulReason: text("annul_reason"),
+  annulledBy: uuid("annulled_by").references(() => users.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+}, (t) => ({
+  /** El numero es unico DENTRO de su serie, no entre todas. */
+  numeroPorSerie: unique("invoices_kind_number_unique").on(t.kind, t.number),
+}));
+
+export const invoiceLines = pgTable("invoice_lines", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  invoiceId: uuid("invoice_id")
+    .notNull()
+    .references(() => invoices.id),
+  catalogItemId: uuid("catalog_item_id").references(() => catalogItems.id),
+  /**
+   * De que renglon de la cotizacion sale esta linea, si sale de alguno.
+   *
+   * Es lo que permite saber cuanto de una cotizacion queda por facturar
+   * cuando la obra se entrega en tres viajes: se compara lo cotizado contra
+   * lo ya facturado, renglon por renglon.
+   */
+  quoteLineId: uuid("quote_line_id").references(() => quoteLines.id),
   description: text("description").notNull(),
   quantity: integer("quantity").notNull(),
   unitPriceCents: integer("unit_price_cents").notNull(),
