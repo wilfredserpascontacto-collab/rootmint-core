@@ -6,6 +6,12 @@ export type Profile = { name:string; phone?:string; email?:string; address?:stri
 export type Line = { catalogItemId?:string|null; description:string; quantity:number; unitPriceCents:number; subtotalCents?:number };
 /** El renglón mientras se edita: el precio vive como texto para no perder lo que se teclea. */
 export type Renglon = { catalogItemId?:string; description:string; quantity:number; precio:string; tocado?:boolean };
+export type Factura = { id:string; kind:"ccf"|"final"; number:number; customerId:string; quoteId?:string|null; issueDate:string; status:"issued"|"annulled"; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli:number; notes?:string|null; annulledAt?:string|null; annulReason?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
+/** Un renglón de la cotización con lo que ya se facturó y lo que falta. */
+export type PorFacturar = { quoteLineId:string; description:string; unitPriceCents:number; cotizado:number; facturado:number; pendiente:number };
+/** Los dos documentos de cobro que existen en El Salvador. */
+export const TIPO_FACTURA:Record<string,string>={ccf:"Crédito fiscal",final:"Consumidor final"};
+export const numeroFactura=(kind:string,n:number)=>(kind==="ccf"?"CCF-":"FCF-")+String(n).padStart(5,"0");
 export type Quote = { id:string; number:number; customerId:string; issueDate:string; validityDays:number; status:string; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli?:number; description?:string; workLocation?:string; terms?:string; notes?:string; contactId?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
 import { avisarSinSesion } from "../acceso/sesion";
 

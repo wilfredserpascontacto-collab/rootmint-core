@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, Link, Route, Routes, useNavigate, useParams, useLocation } from "react-router-dom";
-import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata } from "./api";
+import { api, money, date, number, statuses, cents, centsOrNull, type Customer, type Item, type Profile, type Quote, type Renglon, type Precio, type NotaPlata, type Factura, type PorFacturar, TIPO_FACTURA, numeroFactura } from "./api";
 import "./comercial.css";
 
 function useData<T>(path:string) {
@@ -296,6 +296,15 @@ function QuoteDetail(){
  const {id}=useParams();const q=useData<Quote>("/quotes/"+id);const navigate=useNavigate();
  const recienGuardado=(useLocation().state as {avisos?:string[]}|null)?.avisos??[];
  const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);const [avisos,setAvisos]=useState<string[]>(recienGuardado);const [confirmando,setConfirmando]=useState(false);
+ // Lo que falta facturar, renglón por renglón. Una obra se entrega por partes.
+ const pf=useData<{lines:PorFacturar[]}>("/quotes/"+id+"/por-facturar");
+ const falta=(pf.data?.lines??[]).filter(l=>l.pendiente>0);
+ const algoFacturado=(pf.data?.lines??[]).some(l=>l.facturado>0);
+ async function facturar(){
+  if(busy)return;setBusy(true);setFailure("");
+  try{const f=await api<Factura>("/invoices","POST",{quoteId:id});navigate("/comercial/facturas/"+f.id,{state:{avisos:f.avisos}})}
+  catch(e){setFailure((e as Error).message);setBusy(false)}
+ }
  async function status(value:string){if(busy)return;setBusy(true);setFailure("");try{const r=await api<Quote&{avisos?:string[]}>("/quotes/"+id+"/status","PATCH",{status:value});setAvisos(r.avisos??[]);q.reload()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
  // Sin setBusy(false) al salir bien: la pantalla ya se fue.
  async function archivar(){if(busy)return;setBusy(true);setFailure("");try{await api("/quotes/"+id,"DELETE");navigate("/comercial/cotizaciones")}catch(e){setFailure((e as Error).message);setBusy(false);setConfirmando(false)}}
@@ -304,13 +313,129 @@ function QuoteDetail(){
  const opciones=[...naturales,...Object.keys(ACCIONES).filter(k=>k!==quote.status&&!naturales.includes(k))];
  const customer=quote.customerSnapshot;const business=quote.businessSnapshot;
  const expires=new Date(quote.issueDate);expires.setUTCDate(expires.getUTCDate()+quote.validityDays);
- return <><div className="c-no-print"><Link className="c-back" to="/comercial/cotizaciones">← Cotizaciones</Link><Header title={number(quote.number)} subtitle={quote.description||"Propuesta comercial"} action={<button className="c-primary" onClick={()=>window.print()}>Imprimir / guardar PDF</button>}/><div className="c-statusbar"><Badge status={quote.status}/><Link className="c-primary" to={"/comercial/cotizaciones/"+quote.id+"/editar"}>Corregir</Link>{opciones.map(k=><button key={k} className={naturales.length===1&&naturales[0]===k?"c-primary":""} disabled={busy} onClick={()=>status(k)}>{ACCIONES[k]}</button>)}{confirmando?<span className="c-confirmar">¿Archivar {number(quote.number)}?<button disabled={busy} onClick={archivar}>Sí, archivar</button><button disabled={busy} onClick={()=>setConfirmando(false)}>No</button></span>:<button disabled={busy} onClick={()=>setConfirmando(true)}>Archivar</button>}<span>El envío al cliente se realiza fuera del sistema.</span></div>{avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}<ErrorBox message={failure}/></div>
+ return <><div className="c-no-print"><Link className="c-back" to="/comercial/cotizaciones">← Cotizaciones</Link><Header title={number(quote.number)} subtitle={quote.description||"Propuesta comercial"} action={<button className="c-primary" onClick={()=>window.print()}>Imprimir / guardar PDF</button>}/><div className="c-statusbar"><Badge status={quote.status}/><Link className="c-primary" to={"/comercial/cotizaciones/"+quote.id+"/editar"}>Corregir</Link>{opciones.map(k=><button key={k} className={naturales.length===1&&naturales[0]===k?"c-primary":""} disabled={busy} onClick={()=>status(k)}>{ACCIONES[k]}</button>)}{confirmando?<span className="c-confirmar">¿Archivar {number(quote.number)}?<button disabled={busy} onClick={archivar}>Sí, archivar</button><button disabled={busy} onClick={()=>setConfirmando(false)}>No</button></span>:<button disabled={busy} onClick={()=>setConfirmando(true)}>Archivar</button>}{falta.length>0&&<button className={quote.status==="accepted"?"c-primary":""} disabled={busy} onClick={facturar}>{algoFacturado?"Facturar lo que falta":"Facturar"}</button>}<span>El envío al cliente se realiza fuera del sistema.</span></div>
+ {pf.data&&<p className="c-ficha-nota">{falta.length===0?"Esta cotización ya está facturada por completo.":algoFacturado?`Falta facturar: ${falta.map(l=>`${l.pendiente} de ${l.description}`).join(", ")}.`:"Todavía no se ha facturado nada de esta cotización."}</p>}{avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}<ErrorBox message={failure}/></div>
  <article className="c-paper"><div className="c-paper-top"><div><span className="c-paper-mark">▥</span><h2>{business?.name??"Empresa · documento anterior"}</h2><p>{business?.address}</p><p>{[business?.phone,business?.email].filter(Boolean).join(" · ")}</p>{business?.nit&&<p>NIT {business.nit}</p>}</div><div className="c-paper-number"><span>COTIZACIÓN</span><h2>{number(quote.number)}</h2><p>Emisión: {date(quote.issueDate)}</p><p>Válida hasta: {date(expires.toISOString())}</p><Badge status={quote.status}/></div></div>
  <div className="c-paper-client"><div><span className="c-eyebrow">PREPARADA PARA</span><h3>{customer?.name??"Cliente · documento anterior sin copia histórica"}</h3><p>{customer?.address}</p><p>{[customer?.phone,customer?.email].filter(Boolean).join(" · ")}</p>{customer?.nit&&<p>NIT: {customer.nit}</p>}</div><div><span className="c-eyebrow">PROYECTO / ENTREGA</span><h3>{quote.description||"Suministro de productos y servicios"}</h3><p>{quote.workLocation||"Por acordar"}</p></div></div>
  <table className="c-paper-lines"><thead><tr><th>Descripción</th><th className="c-num">Cantidad</th><th className="c-num">Precio unitario</th><th className="c-num">Importe</th></tr></thead><tbody>{quote.lines?.map((l,i)=><tr key={i}><td>{l.description}</td><td className="c-num">{l.quantity}</td><td className="c-num">{money(l.unitPriceCents)}</td><td className="c-num">{money(l.subtotalCents??l.quantity*l.unitPriceCents)}</td></tr>)}</tbody></table>
  <div className="c-paper-totals"><dl><div><dt>Subtotal</dt><dd>{money(quote.subtotalCents)}</dd></div><div><dt>Impuestos</dt><dd>{money(quote.taxCents)}</dd></div><div className="c-grand"><dt>Total USD</dt><dd>{money(quote.totalCents)}</dd></div></dl></div>
  <div className="c-paper-terms"><h3>Condiciones comerciales</h3><p className="c-pre">{quote.terms||"Condiciones por acordar con el cliente."}</p>{quote.notes&&<><h3>Observaciones</h3><p className="c-pre">{quote.notes}</p></>}</div><footer>Gracias por considerar nuestra propuesta. · Documento comercial, no constituye comprobante fiscal.</footer></article></>;
 }
+
+/**
+ * Las facturas.
+ *
+ * Hay dos documentos y no se diferencian solo en el nombre: al crédito fiscal
+ * se le desglosa el IVA aparte y va para quien presenta su NRC; al consumidor
+ * final se le muestra el IVA ya incluido en el precio. El total que paga el
+ * cliente es el mismo en los dos; lo que cambia es cómo se imprime. Por eso
+ * acá abajo el papel se arma distinto según el tipo, pero los números que
+ * viajan son siempre los mismos.
+ */
+function FacturaBadge({f}:{f:Factura}){
+ return <span className={"c-badge "+(f.status==="annulled"?"rejected":"accepted")}>{f.status==="annulled"?"Anulada":TIPO_FACTURA[f.kind]}</span>
+}
+
+function Facturas(){
+ const f=useData<Factura[]>("/invoices");const c=useData<Customer[]>("/customers");const [search,setSearch]=useState("");const [tipo,setTipo]=useState("all");
+ const rows=f.data?.filter(x=>(tipo==="all"||x.kind===tipo)&&(numeroFactura(x.kind,x.number)+" "+(x.customerSnapshot?.name??c.data?.find(y=>y.id===x.customerId)?.name??"")).toLowerCase().includes(search.toLowerCase()))??[];
+ return <><Header title="Facturas" subtitle="Lo que se cobró, a quién y cuándo. Una factura emitida no se corrige: se anula y se hace otra." action={<Link className="c-primary" to="nueva">+ Nueva factura</Link>}/>
+ <div className="c-toolbar"><input aria-label="Buscar facturas" placeholder="Buscar número o cliente…" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Tipo de documento" value={tipo} onChange={e=>setTipo(e.target.value)}><option value="all">Los dos tipos</option><option value="ccf">Crédito fiscal</option><option value="final">Consumidor final</option></select></div>
+ <ErrorBox message={f.error||c.error}/>
+ <section className="c-card c-pad"><div className="c-scroll"><table><thead><tr><th>Factura / cliente</th><th>Fecha</th><th>Tipo</th><th className="c-num">Total</th><th></th></tr></thead><tbody>{rows.map(x=><tr key={x.id} style={x.status==="annulled"?{opacity:.55}:undefined}><td><Link to={"/comercial/facturas/"+x.id}><strong>{numeroFactura(x.kind,x.number)}</strong></Link><small>{x.customerSnapshot?.name??c.data?.find(y=>y.id===x.customerId)?.name??"Cliente"}</small></td><td>{date(x.issueDate)}</td><td><FacturaBadge f={x}/></td><td className="c-num"><strong>{money(x.totalCents)}</strong></td><td><Link className="c-link" to={"/comercial/facturas/"+x.id}>Ver →</Link></td></tr>)}</tbody></table></div>
+ {f.data&&!rows.length&&<Empty title="Todavía no hay facturas">Una factura nace de una cotización aceptada, o suelta cuando alguien llega y compra sin cotizar.</Empty>}</section></>;
+}
+
+/** Una factura suelta: alguien llegó, compró, y no hubo cotización de por medio. */
+function FacturaNueva(){
+ const navigate=useNavigate();const c=useData<Customer[]>("/customers");const items=useData<Item[]>("/catalog-items");
+ const [clienteId,setClienteId]=useState("");const [kind,setKind]=useState<""|"ccf"|"final">("");
+ const [renglones,setRenglones]=useState<Renglon[]>([{description:"",quantity:1,precio:""}]);
+ const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);
+ const cliente=c.data?.find(x=>x.id===clienteId);
+ // El tipo se propone según el NRC, como hace el servidor. Si quien factura
+ // elige otro, el servidor avisa y lo deja pasar.
+ const sugerido=cliente?(cliente.nrc&&cliente.nrc.trim()?"ccf":"final"):"";
+ const tipoElegido=kind||sugerido;
+ const subtotal=renglones.reduce((n,r)=>n+(centsOrNull(r.precio)??0)*r.quantity,0);
+ const iva=Math.round(subtotal*0.13);
+ function set(i:number,cambio:Partial<Renglon>){setRenglones(rs=>rs.map((r,j)=>j===i?{...r,...cambio}:r))}
+ async function emitir(e:FormEvent){
+  e.preventDefault();if(busy)return;
+  const lines=renglones.filter(r=>r.description.trim()&&r.quantity>0).map(r=>({catalogItemId:r.catalogItemId,description:r.description.trim(),quantity:r.quantity,unitPriceCents:cents(r.precio)}));
+  if(!lines.length){setFailure("Agregá al menos un renglón con descripción, cantidad y precio.");return}
+  setBusy(true);setFailure("");
+  try{const f=await api<Factura>("/invoices","POST",{customerId:clienteId,kind:tipoElegido||undefined,lines});navigate("/comercial/facturas/"+f.id,{state:{avisos:f.avisos}})}
+  catch(err){setFailure((err as Error).message);setBusy(false)}
+ }
+ return <form onSubmit={emitir}><Link className="c-back" to="/comercial/facturas">← Facturas</Link>
+ <Header title="Nueva factura" subtitle="Para una venta que no pasó por cotización. Una vez emitida no se corrige: se anula y se hace otra."/>
+ <ErrorBox message={failure||c.error||items.error}/>
+ <section className="c-card c-pad"><div className="c-form-grid">
+  <Field label="Cliente"><select required value={clienteId} onChange={e=>{setClienteId(e.target.value);setKind("")}}><option value="">Elegí un cliente…</option>{c.data?.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+  <Field label="Tipo de documento"><select value={tipoElegido} onChange={e=>setKind(e.target.value as "ccf"|"final")} disabled={!clienteId}><option value="ccf">Crédito fiscal</option><option value="final">Consumidor final</option></select></Field>
+ </div>
+ {cliente&&<p className="c-ficha-nota">{sugerido==="ccf"?`${cliente.name} tiene NRC, así que le corresponde crédito fiscal para poder descontarse el IVA.`:`${cliente.name} no tiene NRC cargado, así que le corresponde consumidor final.`}</p>}
+ </section>
+ <section className="c-card c-pad"><h3>Qué se le cobra</h3>
+ {renglones.map((r,i)=><div key={i} className="c-line-editor"><div className="c-form-grid">
+   <Field label="Producto o servicio"><select value={r.catalogItemId??""} onChange={e=>{const it=items.data?.find(x=>x.id===e.target.value);set(i,{catalogItemId:e.target.value||undefined,description:it?it.name:r.description,precio:it?(it.unitPriceCents/100).toFixed(2):r.precio})}}><option value="">Escribirlo a mano…</option>{items.data?.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+   <Field label="Descripción"><input required value={r.description} onChange={e=>set(i,{description:e.target.value})}/></Field>
+   <Field label="Cantidad"><input type="number" min={1} required value={r.quantity} onChange={e=>set(i,{quantity:Math.max(1,Number(e.target.value)||1)})}/></Field>
+   <Field label="Precio unitario"><input required inputMode="decimal" value={r.precio} onChange={e=>set(i,{precio:e.target.value})} placeholder="0.45"/></Field>
+  </div>
+  {r.precio&&centsOrNull(r.precio)===null&&<p className="c-error" style={{margin:"0 0 10px"}}>No se entiende «{r.precio}» como monto. Escribí solo el número, por ejemplo 0.45</p>}
+  {renglones.length>1&&<button type="button" className="c-link" onClick={()=>setRenglones(rs=>rs.filter((_,j)=>j!==i))}>Quitar este renglón</button>}
+ </div>)}
+ <button type="button" className="c-secondary" onClick={()=>setRenglones(rs=>[...rs,{description:"",quantity:1,precio:""}])}>+ Otro renglón</button>
+ <div className="c-paper-totals"><dl><div><dt>Subtotal</dt><dd>{money(subtotal)}</dd></div><div><dt>IVA 13%</dt><dd>{money(iva)}</dd></div><div className="c-grand"><dt>Total USD</dt><dd>{money(subtotal+iva)}</dd></div></dl></div>
+ </section>
+ <div className="c-statusbar"><button className="c-primary" disabled={busy||!clienteId}>{busy?"Emitiendo…":"Emitir la factura"}</button><span>Al emitirla se le asigna número y ya no se puede corregir.</span></div>
+ </form>;
+}
+
+function FacturaDetail(){
+ const {id}=useParams();const f=useData<Factura>("/invoices/"+id);
+ const recienEmitida=(useLocation().state as {avisos?:string[]}|null)?.avisos??[];
+ const [avisos,setAvisos]=useState<string[]>(recienEmitida);const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);
+ const [anulando,setAnulando]=useState(false);const [motivo,setMotivo]=useState("");
+ async function anular(){
+  if(busy)return;setBusy(true);setFailure("");
+  try{const r=await api<Factura>("/invoices/"+id+"/anular","POST",{reason:motivo});setAvisos(r.avisos??[]);setAnulando(false);setMotivo("");f.reload()}
+  catch(e){setFailure((e as Error).message)}finally{setBusy(false)}
+ }
+ const factura=f.data;if(!factura)return <><ErrorBox message={f.error}/>{!f.error&&<p>Cargando factura…</p>}</>;
+ const cliente=factura.customerSnapshot;const empresa=factura.businessSnapshot;
+ const esCCF=factura.kind==="ccf";
+ // En el consumidor final el precio que se imprime lleva el IVA adentro. No es
+ // otro precio: es el mismo total, repartido de otra manera sobre el papel.
+ const conIva=(c:number)=>Math.round(c*(1+factura.taxRateMilli/100000));
+ return <><div className="c-no-print"><Link className="c-back" to="/comercial/facturas">← Facturas</Link>
+ <Header title={numeroFactura(factura.kind,factura.number)} subtitle={esCCF?"Comprobante de crédito fiscal":"Factura de consumidor final"} action={<button className="c-primary" onClick={()=>window.print()}>Imprimir / guardar PDF</button>}/>
+ <div className="c-statusbar"><FacturaBadge f={factura}/>
+  {factura.quoteId&&<Link className="c-link" to={"/comercial/cotizaciones/"+factura.quoteId}>Ver la cotización</Link>}
+  {factura.status==="issued"&&(anulando
+   ?<span className="c-confirmar"><input aria-label="Motivo de la anulación" placeholder="¿Por qué se anula?" value={motivo} onChange={e=>setMotivo(e.target.value)}/><button disabled={busy||motivo.trim().length<3} onClick={anular}>Anular</button><button disabled={busy} onClick={()=>{setAnulando(false);setMotivo("")}}>No</button></span>
+   :<button disabled={busy} onClick={()=>setAnulando(true)}>Anular</button>)}
+  <span>Una factura emitida no se corrige. Si está mal, se anula y se hace otra.</span></div>
+ {factura.status==="annulled"&&<div className="c-error" role="alert"><strong>Anulada.</strong> {factura.annulReason} · El número {numeroFactura(factura.kind,factura.number)} no se reusa.</div>}
+ {avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}
+ <ErrorBox message={failure}/></div>
+
+ <article className="c-paper"><div className="c-paper-top"><div><span className="c-paper-mark">▥</span><h2>{empresa?.name??"Empresa"}</h2><p>{empresa?.address}</p><p>{[empresa?.phone,empresa?.email].filter(Boolean).join(" · ")}</p>{empresa?.nit&&<p>NIT {empresa.nit}</p>}</div>
+ <div className="c-paper-number"><span>{esCCF?"COMPROBANTE DE CRÉDITO FISCAL":"FACTURA"}</span><h2>{numeroFactura(factura.kind,factura.number)}</h2><p>Emisión: {date(factura.issueDate)}</p><FacturaBadge f={factura}/></div></div>
+ <div className="c-paper-client"><div><span className="c-eyebrow">CLIENTE</span><h3>{cliente?.name??"Cliente"}</h3><p>{cliente?.address}</p><p>{[cliente?.phone,cliente?.email].filter(Boolean).join(" · ")}</p>{cliente?.nit&&<p>NIT: {cliente.nit}</p>}{esCCF&&cliente?.nrc&&<p>NRC: {cliente.nrc}</p>}</div></div>
+ <table className="c-paper-lines"><thead><tr><th>Descripción</th><th className="c-num">Cantidad</th><th className="c-num">Precio unitario</th><th className="c-num">Importe</th></tr></thead>
+ <tbody>{factura.lines?.map((l,i)=><tr key={i}><td>{l.description}</td><td className="c-num">{l.quantity}</td><td className="c-num">{money(esCCF?l.unitPriceCents:conIva(l.unitPriceCents))}</td><td className="c-num">{money(esCCF?(l.subtotalCents??l.quantity*l.unitPriceCents):conIva(l.subtotalCents??l.quantity*l.unitPriceCents))}</td></tr>)}</tbody></table>
+ <div className="c-paper-totals"><dl>
+  {esCCF
+   ?<><div><dt>Subtotal</dt><dd>{money(factura.subtotalCents)}</dd></div><div><dt>IVA {(factura.taxRateMilli/1000).toFixed(0)}%</dt><dd>{money(factura.taxCents)}</dd></div></>
+   :<div><dt>Suma (IVA incluido)</dt><dd>{money(factura.totalCents)}</dd></div>}
+  <div className="c-grand"><dt>Total USD</dt><dd>{money(factura.totalCents)}</dd></div></dl></div>
+ {factura.notes&&<div className="c-paper-terms"><h3>Observaciones</h3><p className="c-pre">{factura.notes}</p></div>}
+ <footer>{esCCF?"Los precios no incluyen IVA; se desglosa arriba.":"Los precios mostrados incluyen IVA."}</footer></article></>;
+}
+
 function Settings({onSaved}:{onSaved:()=>void}) {
  const p=useData<Profile>("/business-profile");const [failure,setFailure]=useState("");const [saved,setSaved]=useState(false);const [busy,setBusy]=useState(false);
  async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);setSaved(false);try{await api("/business-profile","PUT",Object.fromEntries(new FormData(e.currentTarget)));setSaved(true);setFailure("");onSaved()}catch(e){setFailure((e as Error).message)}finally{setBusy(false)}}
@@ -324,6 +449,6 @@ function Dashboard(){
 }
 export default function Comercial({quien}:{quien?:ReactNode}){
  const p=useData<Profile>("/business-profile");
- return <div id="commercial"><aside className="c-sidebar"><Link className="c-logo" to="/comercial"><span>▥</span> GRUPO TITÁN<small>ÁREA COMERCIAL</small></Link><div className="c-company"><span>{(p.data?.name??"M").slice(0,1).toUpperCase()}</span><div><strong>{p.data?.name??"Mi empresa"}</strong><small>Emite las cotizaciones</small></div></div><div className="c-nav-label">COMERCIAL</div><nav>{[["","◫","Resumen"],["clientes","◎","Clientes y prospectos"],["cotizaciones","▤","Cotizaciones"],["productos","▦","Productos y servicios"]].map(([path,icon,label])=><NavLink key={path} to={"/comercial"+(path?"/"+path:"")} end={path===""}><span>{icon}</span>{label}</NavLink>)}</nav><div className="c-nav-label">ADMINISTRACIÓN</div><nav><NavLink to="/comercial/empresa"><span>⚙</span>Mi empresa</NavLink><Link to="/lotes"><span>↗</span>Abrir producción</Link></nav><div className="c-sidebar-bottom"><span className="c-dot"/>Versión de desarrollo<small>Usar únicamente datos de prueba.</small></div></aside><div className="c-workspace"><div className="c-topbar"><span>Grupo Titán <b>/</b> Área comercial</span><span className="c-environment">{/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"DESARROLLO LOCAL":"VERSIÓN DE PRUEBA"}</span>{quien}</div><main><Routes><Route index element={<Dashboard/>}/><Route path="clientes" element={<Customers/>}/><Route path="clientes/:id" element={<CustomerDetail/>}/><Route path="productos" element={<Catalog/>}/><Route path="cotizaciones" element={<Quotes/>}/><Route path="cotizaciones/nueva" element={<QuoteEditor/>}/><Route path="cotizaciones/:id/editar" element={<QuoteEditor/>}/><Route path="cotizaciones/:id" element={<QuoteDetail/>}/><Route path="empresa" element={<Settings onSaved={p.reload}/>}/><Route path="*" element={<Empty title="Página no encontrada"><Link to="/comercial">Volver al resumen</Link></Empty>}/></Routes></main><footer className="c-workspace-footer"><span>GRUPO TITÁN · BLOQUES Y CONSTRUCCIÓN</span><span className="c-credito-proveedor">Tecnología de RootMint</span><span>USD · El Salvador</span></footer></div></div>
+ return <div id="commercial"><aside className="c-sidebar"><Link className="c-logo" to="/comercial"><span>▥</span> GRUPO TITÁN<small>ÁREA COMERCIAL</small></Link><div className="c-company"><span>{(p.data?.name??"M").slice(0,1).toUpperCase()}</span><div><strong>{p.data?.name??"Mi empresa"}</strong><small>Emite las cotizaciones</small></div></div><div className="c-nav-label">COMERCIAL</div><nav>{[["","◫","Resumen"],["clientes","◎","Clientes y prospectos"],["cotizaciones","▤","Cotizaciones"],["facturas","▣","Facturas"],["productos","▦","Productos y servicios"]].map(([path,icon,label])=><NavLink key={path} to={"/comercial"+(path?"/"+path:"")} end={path===""}><span>{icon}</span>{label}</NavLink>)}</nav><div className="c-nav-label">ADMINISTRACIÓN</div><nav><NavLink to="/comercial/empresa"><span>⚙</span>Mi empresa</NavLink><Link to="/lotes"><span>↗</span>Abrir producción</Link></nav><div className="c-sidebar-bottom"><span className="c-dot"/>Versión de desarrollo<small>Usar únicamente datos de prueba.</small></div></aside><div className="c-workspace"><div className="c-topbar"><span>Grupo Titán <b>/</b> Área comercial</span><span className="c-environment">{/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"DESARROLLO LOCAL":"VERSIÓN DE PRUEBA"}</span>{quien}</div><main><Routes><Route index element={<Dashboard/>}/><Route path="clientes" element={<Customers/>}/><Route path="clientes/:id" element={<CustomerDetail/>}/><Route path="productos" element={<Catalog/>}/><Route path="cotizaciones" element={<Quotes/>}/><Route path="cotizaciones/nueva" element={<QuoteEditor/>}/><Route path="cotizaciones/:id/editar" element={<QuoteEditor/>}/><Route path="cotizaciones/:id" element={<QuoteDetail/>}/><Route path="facturas" element={<Facturas/>}/><Route path="facturas/nueva" element={<FacturaNueva/>}/><Route path="facturas/:id" element={<FacturaDetail/>}/><Route path="empresa" element={<Settings onSaved={p.reload}/>}/><Route path="*" element={<Empty title="Página no encontrada"><Link to="/comercial">Volver al resumen</Link></Empty>}/></Routes></main><footer className="c-workspace-footer"><span>GRUPO TITÁN · BLOQUES Y CONSTRUCCIÓN</span><span className="c-credito-proveedor">Tecnología de RootMint</span><span>USD · El Salvador</span></footer></div></div>
 }
 
