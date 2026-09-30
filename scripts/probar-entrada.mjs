@@ -13,7 +13,7 @@ const BASE = process.env.BASE ?? "http://127.0.0.1:4340";
 let fallos = 0;
 const ok = (b, t, extra = "") => { console.log(`  ${b ? "✓" : "✗"} ${t}${extra ? "  — " + extra : ""}`); if (!b) fallos++; };
 
-const nav = await chromium.launch();
+const nav = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await nav.newContext({ viewport: { width: 1200, height: 800 } });
 const pag = await ctx.newPage();
 const errores = [];
@@ -22,9 +22,12 @@ pag.on("pageerror", (e) => errores.push(String(e).slice(0, 160)));
 await pag.goto(BASE, { waitUntil: "networkidle" });
 await pag.waitForTimeout(900);
 
+// El nombre ya no esta escrito en la interfaz: lo dice el servidor.
+const MARCA = (await (await fetch(BASE + "/auth/hay-alguien")).json()).marca;
+const marcaEsta = (t) => t.toLowerCase().includes(MARCA.toLowerCase());
 console.log("\n=== sin sesión no se ve nada del sistema ===");
 const texto = await pag.locator("body").innerText();
-ok(/GRUPO TITÁN/i.test(texto), "aparece la pantalla de entrada");
+ok(marcaEsta(texto), `aparece la pantalla de entrada, con el nombre del sistema (${MARCA})`);
 ok(!/Lotes|Recetas|Mantenimiento/i.test(texto), "y NO se ve el menú del sistema", texto.replace(/\n+/g, " | ").slice(0, 120));
 
 console.log("\n=== la primera dueña ===");
@@ -63,7 +66,7 @@ await pag.goto(BASE, { waitUntil: "networkidle" });
 await pag.waitForTimeout(1200);
 await pag.getByRole("button", { name: "Salir" }).click();
 await pag.waitForTimeout(1500);
-ok(/GRUPO TITÁN/i.test(await pag.locator("body").innerText()), "vuelve a la entrada");
+ok(marcaEsta(await pag.locator("body").innerText()), "vuelve a la entrada");
 
 await pag.getByRole("tab", { name: "Planta" }).click();
 await pag.waitForTimeout(1200);

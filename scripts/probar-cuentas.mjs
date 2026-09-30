@@ -13,7 +13,7 @@ const BASE = process.env.BASE ?? "http://127.0.0.1:4370";
 let fallos = 0;
 const ok = (b, t, extra = "") => { console.log(`  ${b ? "✓" : "✗"} ${t}${extra ? "  — " + extra : ""}`); if (!b) fallos++; };
 
-const nav = await chromium.launch();
+const nav = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await nav.newContext({ viewport: { width: 1280, height: 900 } });
 const pag = await ctx.newPage();
 const errores = [];

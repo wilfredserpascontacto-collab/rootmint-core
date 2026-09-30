@@ -8,18 +8,8 @@ import estaticos from "@fastify/static";
 import { ZodError } from "zod";
 import { authRoutes } from "./routes/auth.js";
 import { usersRoutes } from "./routes/users.js";
-import { customersRoutes } from "./routes/customers.js";
-import { contactsRoutes } from "./routes/contacts.js";
-import { catalogItemsRoutes } from "./routes/catalog-items.js";
-import { quotesRoutes } from "./routes/quotes.js";
 import { businessProfileRoutes } from "./routes/business-profile.js";
-import { customerFinanceRoutes } from "./routes/customer-finance.js";
-import { invoicesRoutes } from "./routes/invoices.js";
-import { inventarioRoutes } from "./routes/inventario.js";
-import { ordenesRoutes } from "./routes/ordenes.js";
-import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
-import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
-import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
+import { modulosActivos, registrarModulos, PREFIJOS_CONOCIDOS } from "./modulos.js";
 import { quienViene } from "./lib/auth.js";
 
 export async function buildServer() {
@@ -43,6 +33,19 @@ export async function buildServer() {
   await app.register(cookie);
 
   /**
+   * Toda ruta tiene que pertenecer a algo que modulos.ts conoce. Una ruta
+   * nueva con un prefijo sin declarar detiene el arranque: es preferible eso
+   * a que exista y nadie haya decidido a que modulo pertenece.
+   */
+  app.addHook("onRoute", (ruta) => {
+    const primero = ruta.url.split("/")[1] ?? "";
+    if (primero === "" || primero === "*") return; // la interfaz
+    if (!PREFIJOS_CONOCIDOS.has(primero)) {
+      throw new Error(`La ruta ${ruta.method} ${ruta.url} no pertenece a ningun modulo: declarala en src/modulos.ts.`);
+    }
+  });
+
+  /**
    * La puerta.
    *
    * Todo lo que no este en la lista de abajo exige sesion. Es a proposito que
@@ -63,10 +66,22 @@ export async function buildServer() {
   app.addHook("onRequest", async (req, reply) => {
     const url = req.raw.url ?? "";
 
-    // Los archivos de la interfaz se sirven sin sesion: son el HTML y el
-    // JavaScript de la propia pantalla de entrada. No llevan datos.
-    const esApi = /^\/(bloques|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|invoices|inventario|auth|health)(\/|\?|$)/.test(url);
-    if (!esApi) return;
+    /**
+     * Cerrado por estructura, no por lista.
+     *
+     * Antes la puerta tenia una lista de prefijos de la API, y lo que no
+     * estaba en la lista pasaba sin sesion. «/ordenes» se quedo fuera y estuvo
+     * abierto en produccion: se podia leer y escribir sin entrar. Ahora la
+     * pregunta es otra: ¿esta peticion cayo en una ruta real que no es la
+     * interfaz? Entonces pide sesion, se llame como se llame.
+     *
+     * Los archivos de la interfaz (el HTML y el JavaScript de la pantalla de
+     * entrada) se sirven sin sesion: no llevan datos, y se reconocen porque
+     * @fastify/static los atiende con las rutas «/» y «/*».
+     */
+    const patron = req.routeOptions?.url;
+    const esInterfaz = patron === "/" || patron === "/*";
+    if (!patron || esInterfaz) return;
 
     req.quien = (await quienViene(req)) ?? undefined;
 
@@ -176,20 +191,13 @@ export async function buildServer() {
 
   await app.register(authRoutes);
   await app.register(usersRoutes);
-  await app.register(customersRoutes);
-  await app.register(contactsRoutes);
-  await app.register(catalogItemsRoutes);
-  await app.register(quotesRoutes);
   await app.register(businessProfileRoutes);
-  await app.register(customerFinanceRoutes);
-  await app.register(invoicesRoutes);
-  await app.register(inventarioRoutes);
-  await app.register(ordenesRoutes);
 
-  // Módulo de fabricación de bloques
-  await app.register(bloquesCatalogoRoutes);
-  await app.register(bloquesProduccionRoutes);
-  await app.register(bloquesMantenimientoRoutes);
+  /**
+   * Las piezas de este despliegue (ver modulos.ts). Lo que no esta encendido
+   * no se registra: no responde, no esta escondido.
+   */
+  await registrarModulos(app, modulosActivos());
 
   /**
    * La interfaz compilada se sirve desde este mismo servidor.
@@ -219,7 +227,7 @@ export async function buildServer() {
      */
     app.setNotFoundHandler((req, reply) => {
       const url = req.raw.url ?? "";
-      const esApi = /^\/(bloques|health|auth|customers|contacts|catalog-items|quotes|users|business-profile|customer-prices|customer-notes|invoices|inventario)(\/|\?|$)/.test(url);
+      const esApi = PREFIJOS_CONOCIDOS.has(url.split(/[/?]/)[1] ?? "");
       const esAsset = url.startsWith("/assets/") || /\.[a-z0-9]{2,5}(\?|$)/i.test(url);
       if (esApi || esAsset) {
         return reply.code(404).send({ error: "No encontrado" });

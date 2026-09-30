@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Comercial from "./comercial/Comercial";
 import Lotes from "./pantallas/Lotes";
@@ -13,10 +14,17 @@ import Cuentas from "./pantallas/Cuentas";
 import Telemetria from "./comp/Telemetria";
 import Acceso from "./acceso/Acceso";
 import { NOMBRE_ROL, salir, useSesion } from "./acceso/sesion";
+import { ProveedorModulos } from "./acceso/modulos";
 
 export default function App() {
   const location = useLocation();
   const { estado, revisar } = useSesion();
+
+  // El titulo de la pestaña es el nombre de este sistema, no el de un cliente.
+  const marca = estado.fase === "adentro" ? estado.persona.marca : "";
+  useEffect(() => {
+    if (marca) document.title = marca;
+  }, [marca]);
 
   /**
    * Nada se pinta antes de saber quién está adentro.
@@ -31,20 +39,43 @@ export default function App() {
 
   const quien = <Quien persona={estado.persona} alSalir={() => void revisar()} />;
 
-  if (location.pathname.startsWith("/comercial")) {
-    return <Routes><Route path="/comercial/*" element={<Comercial quien={quien} />} /></Routes>;
+  const p = estado.persona;
+  const planta = p.modulos.includes("bloques");
+  const comercial = p.modulos.includes("comercial");
+
+  if (comercial && location.pathname.startsWith("/comercial")) {
+    return (
+      <ProveedorModulos persona={p}>
+        <Routes><Route path="/comercial/*" element={<Comercial quien={quien} />} /></Routes>
+      </ProveedorModulos>
+    );
   }
+
+  /**
+   * Un despliegue sin planta no tiene ninguna de estas pantallas: lo unico que
+   * queda fuera de lo comercial son las cuentas. Todo lo demas vuelve al
+   * inicio en vez de mostrar «Esa pantalla no existe» en algo que el cliente
+   * nunca compro.
+   */
+  if (!planta && location.pathname !== "/cuentas") {
+    return <Navigate to={comercial ? "/comercial" : "/cuentas"} replace />;
+  }
+
   return (
+    <ProveedorModulos persona={p}>
     <div className="app">
       <header className="barra">
         <div className="fila" style={{ gap: 16, alignItems: "baseline" }}>
-          <NavLink to="/lotes" className="marca">BLOQUESTITÁN</NavLink>
-          <span className="cond" style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--ambar)" }}>
-            Control de producción
-          </span>
+          <NavLink to={planta ? "/lotes" : "/comercial"} className="marca">{p.marca.toUpperCase()}</NavLink>
+          {planta ? (
+            <span className="cond" style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--ambar)" }}>
+              Control de producción
+            </span>
+          ) : null}
         </div>
         <nav className="nav">
-          <NavLink to="/comercial">Comercial</NavLink>
+          {comercial ? <NavLink to="/comercial">Comercial</NavLink> : null}
+          {planta ? <>
           <NavLink to="/lotes" className={({ isActive }) => (isActive ? "activo" : "")}>Lotes</NavLink>
           <NavLink to="/ordenes" className={({ isActive }) => (isActive ? "activo" : "")}>Órdenes</NavLink>
           <NavLink to="/planta" className={({ isActive }) => (isActive ? "activo" : "")}>Planta</NavLink>
@@ -52,6 +83,7 @@ export default function App() {
           <NavLink to="/mantenimiento" className={({ isActive }) => (isActive ? "activo" : "")}>Mantenimiento</NavLink>
           <NavLink to="/catalogo" className={({ isActive }) => (isActive ? "activo" : "")}>Catálogo</NavLink>
           <NavLink to="/ajustes" className={({ isActive }) => (isActive ? "activo" : "")}>Ajustes</NavLink>
+          </> : null}
           {estado.persona.role === "owner" && (
             <NavLink to="/cuentas" className={({ isActive }) => (isActive ? "activo" : "")}>Cuentas</NavLink>
           )}
@@ -60,6 +92,7 @@ export default function App() {
       </header>
 
       <Routes>
+        {planta ? <>
         <Route path="/" element={<Navigate to="/lotes" replace />} />
         <Route path="/lotes" element={<Lotes />} />
         <Route path="/lotes/:id" element={<FichaLote />} />
@@ -71,12 +104,14 @@ export default function App() {
         <Route path="/mantenimiento" element={<Mantenimiento />} />
         <Route path="/catalogo" element={<Catalogo />} />
         <Route path="/ajustes" element={<Ajustes />} />
+        </> : null}
         <Route path="/cuentas" element={<Cuentas yo={estado.persona} />} />
         <Route path="*" element={<div className="vacio">Esa pantalla no existe.</div>} />
       </Routes>
 
-      <Telemetria />
+      {planta ? <Telemetria /> : null}
     </div>
+    </ProveedorModulos>
   );
 }
 

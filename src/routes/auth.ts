@@ -1,3 +1,5 @@
+import { modulosActivos } from "../modulos.js";
+import { marcaDelDespliegue } from "../marca.js";
 import type { FastifyInstance } from "fastify";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -28,7 +30,8 @@ export async function authRoutes(app: FastifyInstance) {
   app.get("/auth/me", async (req, reply) => {
     if (!req.quien) return reply.code(401).send({ error: "No hay sesión." });
     const { sessionId: _, ...persona } = req.quien;
-    return persona;
+    // Que piezas tiene este despliegue: la interfaz arma el menu con esto.
+    return { ...persona, modulos: modulosActivos(), ...(await marcaDelDespliegue()) };
   });
 
   /**
@@ -53,7 +56,9 @@ export async function authRoutes(app: FastifyInstance) {
     return Boolean(alguna);
   };
 
-  app.get("/auth/hay-alguien", async () => ({ hayAlguien: await hayDuena() }));
+  // Abierta: la pantalla de entrada necesita saber como se llama el sistema
+  // antes de que nadie haya entrado.
+  app.get("/auth/hay-alguien", async () => ({ hayAlguien: await hayDuena(), planta: modulosActivos().includes("bloques"), ...(await marcaDelDespliegue()) }));
 
   app.post("/auth/primera-duena", async (req, reply) => {
     if (await hayDuena()) {

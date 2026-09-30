@@ -1,3 +1,4 @@
+import { useModulos } from "../acceso/modulos";
 import { useState } from "react";
 import { api } from "../api";
 import { useApi } from "../usar";
@@ -37,6 +38,8 @@ const ROLES: { id: Rol; nombre: string; explica: string }[] = [
 const nombreRol = (r: Rol) => ROLES.find((x) => x.id === r)?.nombre ?? r;
 
 export default function Cuentas({ yo }: { yo: { id: string; role: Rol } }) {
+  // Sin planta no hay tablet ni PIN: solo se entra con correo y contraseña.
+  const planta = useModulos().tiene("bloques");
   const { dato, error, cargando, recargar } = useApi<Cuenta[]>("/users?includeInactive=true");
   const [abierta, setAbierta] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
@@ -82,8 +85,9 @@ export default function Cuentas({ yo }: { yo: { id: string; role: Rol } }) {
       </div>
 
       <p style={{ color: "var(--apagado)", maxWidth: "62ch", marginTop: 10 }}>
-        Quien trabaja en la planta entra tocando su nombre y marcando un PIN; para eso hay que
-        darle uno acá. Quien trabaja desde la oficina entra con su correo y su contraseña.
+        {planta
+          ? "Quien trabaja en la planta entra tocando su nombre y marcando un PIN; para eso hay que darle uno acá. Quien trabaja desde la oficina entra con su correo y su contraseña."
+          : "Cada persona entra con su correo y su contraseña. Desde acá se crean las cuentas y se decide qué puede hacer cada una."}
       </p>
 
       {aviso && (
@@ -129,7 +133,7 @@ export default function Cuentas({ yo }: { yo: { id: string; role: Rol } }) {
                   </td>
                   <td className="mono" style={{ fontSize: 13 }}>{c.email}</td>
                   <td>{nombreRol(c.role)}</td>
-                  <td>{c.tienePin ? "Correo o PIN" : "Correo"}</td>
+                  <td>{planta && c.tienePin ? "Correo o PIN" : "Correo"}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {trabada && (
                       <button
@@ -195,6 +199,7 @@ function Formulario({
   onGuardar: (cuerpo: Cuerpo) => void;
   onCancelar: () => void;
 }) {
+  const planta = useModulos().tiene("bloques");
   const [name, setName] = useState(cuenta?.name ?? "");
   const [email, setEmail] = useState(cuenta?.email ?? "");
   const [role, setRole] = useState<Rol>(cuenta?.role ?? "staff");
@@ -269,6 +274,8 @@ function Formulario({
         />
       </Campo>
 
+      {planta && (
+        <>
       <Campo
         etiqueta="PIN de planta"
         ayuda="De 4 a 8 dígitos. Solo quien lo tiene aparece en la lista de la tablet de la planta. Dejalo vacío para no tocarlo."
@@ -290,6 +297,8 @@ function Formulario({
           <input type="checkbox" aria-label="Quitarle el PIN" checked={quitarPin} onChange={(e) => setQuitarPin(e.target.checked)} />
           <span>Quitarle el PIN (deja de aparecer en la tablet de la planta)</span>
         </label>
+      )}
+        </>
       )}
 
       {editando && !esYo && (

@@ -37,3 +37,6 @@
 /* El nombre del cliente es más largo que el que estaba: cabe en una línea. */
 #commercial .c-logo{font-size:19px;letter-spacing:1px;white-space:nowrap}
 #commercial .c-logo small{padding-left:28px;letter-spacing:3px}
+
+/* El nombre de quien esta adentro se pintaba claro sobre fondo claro: no se leia. */
+#commercial .quien strong{color:var(--ink)}

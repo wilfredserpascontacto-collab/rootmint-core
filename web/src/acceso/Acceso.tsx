@@ -21,10 +21,17 @@ import "./acceso.css";
 export default function Acceso({ alEntrar }: { alEntrar: () => void }) {
   const [puerta, setPuerta] = useState<"oficina" | "planta">("oficina");
   const [vacio, setVacio] = useState<boolean | null>(null);
+  // Mientras no se sepa, no se muestra nada de Titan ni de nadie: el nombre
+  // llega del servidor con la misma respuesta que dice si hay dueña.
+  const [marca, setMarca] = useState({ marca: "", subtitulo: "", planta: true });
 
   useEffect(() => {
     void hayAlguien()
-      .then((r) => setVacio(!r.hayAlguien))
+      .then((r) => {
+        setVacio(!r.hayAlguien);
+        setMarca({ marca: r.marca, subtitulo: r.subtitulo, planta: r.planta });
+        if (r.marca) document.title = r.marca;
+      })
       .catch(() => setVacio(false));
   }, []);
 
@@ -34,8 +41,8 @@ export default function Acceso({ alEntrar }: { alEntrar: () => void }) {
         <div className="acceso-marca">
           <span className="acceso-logo">▥</span>
           <div>
-            <div className="acceso-titulo">GRUPO TITÁN</div>
-            <div className="acceso-sub">Bloques y construcción</div>
+            <div className="acceso-titulo">{marca.marca}</div>
+            {marca.subtitulo ? <div className="acceso-sub">{marca.subtitulo}</div> : null}
           </div>
         </div>
 
@@ -45,7 +52,8 @@ export default function Acceso({ alEntrar }: { alEntrar: () => void }) {
           <PrimeraDuena alEntrar={alEntrar} />
         ) : (
           <>
-            <div className="acceso-puertas" role="tablist">
+            {/* La puerta de la planta solo existe si este sistema tiene planta. */}
+            {marca.planta ? <div className="acceso-puertas" role="tablist">
               <button
                 type="button"
                 role="tab"
@@ -64,8 +72,8 @@ export default function Acceso({ alEntrar }: { alEntrar: () => void }) {
               >
                 Planta
               </button>
-            </div>
-            {puerta === "oficina" ? <Oficina alEntrar={alEntrar} /> : <Planta alEntrar={alEntrar} />}
+            </div> : null}
+            {puerta === "oficina" || !marca.planta ? <Oficina alEntrar={alEntrar} /> : <Planta alEntrar={alEntrar} />}
           </>
         )}
       </div>

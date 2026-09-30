@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 
 export type Rol = "owner" | "staff" | "viewer";
-export type Persona = { id: string; name: string; email: string; role: Rol };
+export type Persona = {
+  id: string;
+  name: string;
+  email: string;
+  role: Rol;
+  /** Que piezas tiene este despliegue: el menu se arma con esto. */
+  modulos: string[];
+  /** Como se llama el sistema en pantalla (ver src/marca.ts). */
+  marca: string;
+  subtitulo: string;
+};
 
 export const NOMBRE_ROL: Record<Rol, string> = {
   owner: "Dueña",
@@ -47,7 +57,7 @@ export const salir = () => pedir<{ ok: true }>("/auth/salir");
 export const gentePlanta = () => pedir<{ id: string; name: string }[]>("/auth/planta", undefined, "GET");
 
 export const hayAlguien = () =>
-  pedir<{ hayAlguien: boolean }>("/auth/hay-alguien", undefined, "GET");
+  pedir<{ hayAlguien: boolean; planta: boolean; marca: string; subtitulo: string }>("/auth/hay-alguien", undefined, "GET");
 
 export const crearPrimeraDuena = (name: string, email: string, password: string) =>
   pedir<Persona>("/auth/primera-duena", { name, email, password });
