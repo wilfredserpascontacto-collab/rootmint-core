@@ -10,6 +10,7 @@ import { catalogItemsRoutes } from "./routes/catalog-items.js";
 import { quotesRoutes } from "./routes/quotes.js";
 import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { invoicesRoutes } from "./routes/invoices.js";
+import { instalacionesRoutes } from "./routes/instalaciones.js";
 
 /**
  * Qué piezas tiene cada despliegue.
@@ -44,7 +45,29 @@ export const MODULOS = {
       bloquesMantenimientoRoutes,
     ],
   },
+  servicio: {
+    // Lo que se instalo y lo que se le debe a quien lo tiene (ver
+    // schema-servicio.ts). Cuelga de los clientes, asi que pide «comercial».
+    prefijos: ["instalaciones"],
+    rutas: [instalacionesRoutes],
+  },
 } as const;
+
+/**
+ * Lo que un modulo necesita para existir. Faltando eso, el sistema no
+ * arranca: es mejor un error claro que una pantalla que pide clientes a un
+ * servidor que no los tiene.
+ */
+export const REQUIERE: Partial<Record<keyof typeof MODULOS, (keyof typeof MODULOS)[]>> = {
+  servicio: ["comercial"],
+};
+
+/**
+ * Lo que se enciende cuando no se dice nada: lo que ya corria en produccion
+ * antes de que existiera el interruptor (Titan). NO es «todos»: un modulo
+ * nuevo no puede aparecerle por sorpresa a quien no lo pidio ni lo pago.
+ */
+export const POR_DEFECTO: (keyof typeof MODULOS)[] = ["comercial", "bloques"];
 
 export type Modulo = keyof typeof MODULOS;
 export const TODOS: Modulo[] = Object.keys(MODULOS) as Modulo[];
@@ -55,13 +78,13 @@ export const PREFIJOS_BASE = ["auth", "users", "business-profile", "health"];
 /**
  * Los módulos encendidos, leídos de ROOTMINT_MODULES («comercial,bloques»).
  *
- * Sin la variable se encienden todos: es lo que ya corre en producción y no
- * debe cambiar por actualizar. Un nombre que no existe detiene el arranque —un
+ * Sin la variable se enciende lo que ya corría en producción (POR_DEFECTO) y
+ * no más: un módulo nuevo no debe llegarle a quien no lo pidió. Un nombre que no existe detiene el arranque —un
  * «comerical» mal escrito no puede dejar el sistema andando sin comercial y
  * sin decir por qué.
  */
 export function modulosActivos(valor = process.env.ROOTMINT_MODULES): Modulo[] {
-  if (valor === undefined || valor.trim() === "") return [...TODOS];
+  if (valor === undefined || valor.trim() === "") return [...POR_DEFECTO];
   const pedidos = valor.split(",").map((m) => m.trim().toLowerCase()).filter(Boolean);
   const raros = pedidos.filter((m) => !(m in MODULOS));
   if (raros.length) {
@@ -69,7 +92,14 @@ export function modulosActivos(valor = process.env.ROOTMINT_MODULES): Modulo[] {
       `ROOTMINT_MODULES trae módulos que no existen: ${raros.join(", ")}. Los válidos son: ${TODOS.join(", ")}.`,
     );
   }
-  return [...new Set(pedidos)] as Modulo[];
+  const activos = [...new Set(pedidos)] as Modulo[];
+  for (const m of activos) {
+    const faltan = (REQUIERE[m] ?? []).filter((r) => !activos.includes(r));
+    if (faltan.length) {
+      throw new Error(`El módulo «${m}» necesita también: ${faltan.join(", ")}. Agregalo a ROOTMINT_MODULES.`);
+    }
+  }
+  return activos;
 }
 
 /** Toda ruta que este sistema conoce, encendida o no: la que no se conoce es la que cae en la interfaz. */

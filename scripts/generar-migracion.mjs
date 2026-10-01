@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const ARCHIVOS = ["src/db/schema-bloques.ts"];
+const ARCHIVOS = ["src/db/schema-bloques.ts", "src/db/schema-servicio.ts"];
 const originales = new Map();
 
 for (const f of ARCHIVOS) {

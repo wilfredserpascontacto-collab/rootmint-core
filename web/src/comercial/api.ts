@@ -70,3 +70,27 @@ export function cents(value:string) {
 /** Lo mismo pero sin reventar: sirve para avisar mientras la persona escribe. */
 export function centsOrNull(value:string){ try{ return cents(value) }catch{ return null } }
 
+
+// --- Servicio: instalaciones ---------------------------------------------
+
+export type Instalacion = {
+  id: string; number: number; customerId: string; customerName: string;
+  quoteId: string | null; label: string; address: string; description: string;
+  /** Un DIA (AAAA-MM-DD), no un instante. Nulo: todavia no se entrega, o nadie cargo la fecha. */
+  deliveredAt: string | null;
+  notes: string | null; createdAt: string; updatedAt: string;
+  cotizacion?: { id: string; number: number } | null;
+};
+export const numeroInstalacion = (n: number) => "INS-" + String(n).padStart(5, "0");
+
+/**
+ * Un dia de calendario, escrito para leerse. NO usa `date()` de arriba, a
+ * proposito: esa convierte un instante a la hora de El Salvador, y un dia
+ * suelto («2026-03-15») se interpreta como medianoche UTC, que alla es las
+ * 6 de la tarde del 14. La entrega saldria un dia antes en pantalla.
+ */
+export const dia = (value: string) => {
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  return new Intl.DateTimeFormat("es-SV", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" })
+    .format(new Date(Date.UTC(y!, m! - 1, d!)));
+};

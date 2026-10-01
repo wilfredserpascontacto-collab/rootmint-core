@@ -79,6 +79,14 @@ for (const ruta of ["/ordenes", "/inventario", "/bloques/tipos", "/customers"]) 
   ok(r.status === 200, `con sesión, GET ${ruta} → 200`, `dio ${r.status}`);
 }
 
+// Un modulo nuevo no puede llegarle por sorpresa a quien no lo pidio: Titan
+// corre sin ROOTMINT_MODULES y no debe recibir «servicio» por actualizarse.
+ok(!me1.modulos.includes("servicio"), "sin ROOTMINT_MODULES NO se enciende «servicio» (Titán no recibe lo que no pidió)", JSON.stringify(me1.modulos));
+for (const metodo of ["GET", "POST"]) {
+  const r = await pedir(BASE, "/instalaciones", g1, metodo, metodo === "POST" ? {} : undefined);
+  ok(r.status === 404, `${metodo} /instalaciones con sesión de dueña, sin el módulo → 404`, `dio ${r.status}`);
+}
+
 console.log("\n─── 3 · SOLO COMERCIAL: LA FÁBRICA NO EXISTE ───");
 const g2 = await entrarComo(SOLO);
 ok(Boolean(g2), "se crea la primera dueña");
@@ -108,6 +116,16 @@ const arranque = spawnSync("npx", ["tsx", "src/index.ts"], {
 const salida = (arranque.stdout ?? "") + (arranque.stderr ?? "");
 ok(arranque.status !== 0 && /comerical/.test(salida) && /comercial, bloques/.test(salida),
    "«comerical» no arranca, dice cuál fue y cuáles valen", `estado ${arranque.status}: ${salida.slice(0, 300)}`);
+
+const sinBase = spawnSync("npx", ["tsx", "src/index.ts"], {
+  encoding: "utf8",
+  cwd: process.cwd(),
+  timeout: 60000,
+  env: { ...process.env, ROOTMINT_LOCAL: "1", ROOTMINT_LOCAL_DATA: "/tmp/pg-mod-malo2", PORT: "4609", ROOTMINT_MODULES: "servicio" },
+});
+const salida2 = (sinBase.stdout ?? "") + (sinBase.stderr ?? "");
+ok(sinBase.status !== 0 && /servicio/.test(salida2) && /necesita también: comercial/.test(salida2),
+   "«servicio» sin «comercial» no arranca y dice qué le falta", `estado ${sinBase.status}: ${salida2.slice(0, 300)}`);
 
 console.log(fallas ? `\n${fallas} FALLAS` : "\nTodo bien.");
 process.exit(fallas ? 1 : 0);

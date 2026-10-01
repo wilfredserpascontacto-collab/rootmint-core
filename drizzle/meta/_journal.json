@@ -71,6 +71,13 @@
       "when": 1790700000000,
       "tag": "0009_orden_produccion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0010_instalaciones",
+      "breakpoints": true
     }
   ]
 }
