@@ -40,3 +40,28 @@
 
 /* El nombre de quien esta adentro se pintaba claro sobre fondo claro: no se leia. */
 #commercial .quien strong{color:var(--ink)}
+
+/* Garantias: el letrero de la pregunta del dia, los chips y el formulario. */
+#commercial .c-letrero{display:flex;flex-direction:column;gap:4px;padding:20px 24px;border-radius:8px;border:1px solid;margin:0 0 24px}
+#commercial .c-letrero strong{font-size:22px;letter-spacing:-.3px;line-height:1.25}
+#commercial .c-letrero span{font-size:14px}
+#commercial .c-letrero.si{background:#e9f0e4;border-color:#b9d1ad;color:#2f5527}
+#commercial .c-letrero.pronto{background:#f9f2e4;border-color:#e4d2ae;color:#7d6330}
+#commercial .c-letrero.no{background:#faeee6;border-color:#e9c4ac;color:#8a4a26}
+#commercial .c-letrero.nada{background:#eef0eb;border-color:#d5dacf;color:#4f5c4c}
+#commercial .c-chip{display:inline-block;font-size:12px;padding:4px 9px;border-radius:4px;white-space:nowrap;background:#eef0eb;color:#61705d}
+#commercial .c-chip.si{background:#e9f0e4;color:#426e3a}
+#commercial .c-chip.pronto{background:#f9f2e4;color:#7d6330}
+#commercial .c-chip.no{background:#faeee6;color:#9b5d38}
+#commercial .c-garantias{list-style:none;margin:14px 0 0;padding:0}
+#commercial .c-garantias li{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:14px 0;border-bottom:1px solid #eef0e9}
+#commercial .c-garantias li:last-child{border-bottom:0}
+#commercial .c-garantias li.anulada{opacity:.6}
+#commercial .c-garantias li.anulada strong{text-decoration:line-through}
+#commercial .c-fila-acciones{display:flex;gap:14px;flex-shrink:0}
+#commercial .c-atajos{display:flex;gap:10px;flex-wrap:wrap}
+#commercial .c-atajos button.activo{background:var(--accent);border-color:var(--accent);color:#fff}
+#commercial .c-vence{font-size:15px;font-weight:600;color:var(--ink);margin:4px 0 14px}
+#commercial .c-textos{margin-top:12px;border:1px solid var(--border);border-radius:6px;padding:12px 16px}
+#commercial .c-textos summary{cursor:pointer;font-size:14px;font-weight:600}
+#commercial .c-textos .c-form-grid{margin-top:14px}

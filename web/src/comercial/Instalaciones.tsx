@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, number as numeroCotizacion, dia, numeroInstalacion, type Customer, type Instalacion, type Quote } from "./api";
 import { useData, ErrorBox, Empty, Header, Field, Modal } from "./piezas";
+import { LetreroGarantia, ChipGarantia, SeccionGarantias } from "./Garantias";
 
 /** Texto sin tildes ni mayusculas: la misma regla que usa el servidor para buscar. */
 const sinTildes = (s: string) =>
@@ -20,6 +21,7 @@ export function Instalaciones() {
   const { data, error, reload } = useData<Instalacion[]>("/instalaciones");
   const [busca, setBusca] = useState("");
   const [entrega, setEntrega] = useState<"todas" | "entregada" | "pendiente">("todas");
+  const [garantia, setGarantia] = useState<"todas" | "en_garantia" | "vencida" | "sin_garantia">("todas");
   const [creando, setCreando] = useState(false);
   const navigate = useNavigate();
 
@@ -28,6 +30,9 @@ export function Instalaciones() {
   const filas = (data ?? []).filter((i) => {
     if (entrega === "entregada" && !i.deliveredAt) return false;
     if (entrega === "pendiente" && i.deliveredAt) return false;
+    if (garantia === "en_garantia" && i.garantia?.estado !== "en_garantia") return false;
+    if (garantia === "vencida" && i.garantia?.estado !== "vencida") return false;
+    if (garantia === "sin_garantia" && !["sin_garantia", "sin_fecha"].includes(i.garantia?.estado ?? "")) return false;
     if (!q) return true;
     if (numero && i.number === Number(numero[1])) return true;
     return [i.label, i.address, i.description, i.customerName].some((t) => sinTildes(t).includes(q));
@@ -53,6 +58,12 @@ export function Instalaciones() {
           <option value="entregada">Ya entregadas</option>
           <option value="pendiente">Sin fecha de entrega</option>
         </select>
+        <select aria-label="Garantía" value={garantia} onChange={(e) => setGarantia(e.target.value as typeof garantia)}>
+          <option value="todas">Cualquier garantía</option>
+          <option value="en_garantia">En garantía</option>
+          <option value="vencida">Garantía vencida</option>
+          <option value="sin_garantia">Sin garantía registrada</option>
+        </select>
         <span>{data ? `${filas.length} de ${data.length}` : ""}</span>
       </div>
       <ErrorBox message={error} />
@@ -75,6 +86,7 @@ export function Instalaciones() {
                 <th>Dirección</th>
                 <th>Qué se instaló</th>
                 <th>Entrega</th>
+                <th>Garantía</th>
               </tr>
             </thead>
             <tbody>
@@ -88,6 +100,7 @@ export function Instalaciones() {
                   <td>{i.address}</td>
                   <td>{i.description.length > 80 ? i.description.slice(0, 80) + "…" : i.description}</td>
                   <td>{i.deliveredAt ? dia(i.deliveredAt) : <span className="c-ficha-nota">sin fecha</span>}</td>
+                  <td><ChipGarantia g={i.garantia} /></td>
                 </tr>
               ))}
             </tbody>
@@ -149,6 +162,7 @@ export function FichaInstalacion() {
           {avisos.map((a, i) => <li key={i}>{a}</li>)}
         </ul>
       ) : null}
+      {data?.garantia ? <LetreroGarantia g={data.garantia} /> : null}
       {data ? (
         <div className="c-detail-grid">
           <aside className="c-card c-pad">
@@ -168,6 +182,7 @@ export function FichaInstalacion() {
               <h2>Qué se instaló</h2>
               <p className="c-pre">{data.description}</p>
             </section>
+            <SeccionGarantias instalacion={data} alCambiar={reload} mostrarAvisos={setAvisos} />
             <section className="c-card c-pad">
               <h2>Entrega</h2>
               {data.deliveredAt ? (

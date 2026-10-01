@@ -7,27 +7,10 @@ import { installations } from "../db/schema-servicio.js";
 import { logActivity } from "../lib/activity-log.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { getRol, getUserId } from "../lib/request-context.js";
-
-/**
- * Un dia de calendario, escrito AAAA-MM-DD, que exista de verdad.
- *
- * El formato solo no alcanza: «2026-02-31» tiene la forma correcta y no es
- * ningun dia. Se revisa que al armarlo y volver a leerlo salga lo mismo.
- */
-const dia = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha tiene que ser un día, como 2026-03-15.")
-  .refine((s) => {
-    const d = new Date(`${s}T00:00:00Z`);
-    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
-  }, "Ese día no existe en el calendario.");
-
-const texto = (nombre: string, max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1, `Falta ${nombre}.`)
-    .max(max, `${nombre[0]!.toUpperCase()}${nombre.slice(1)} es demasiado largo (máximo ${max} letras).`);
+import { hoyEnElSalvador } from "../lib/fechas.js";
+import { dia, texto } from "../lib/validar.js";
+import { garantiasDe, resumenDeInstalacion, vistaDeGarantia } from "./garantias.js";
+import { warranties } from "../db/schema-servicio.js";
 
 const createSchema = z.object({
   customerId: z.string().uuid("Elegí a qué cliente pertenece."),
@@ -76,11 +59,6 @@ const COLUMNAS = {
   createdAt: installations.createdAt,
   updatedAt: installations.updatedAt,
 };
-
-/** Dia de hoy en El Salvador (UTC-6, sin horario de verano), como AAAA-MM-DD. */
-function hoyEnElSalvador(): string {
-  return new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
-}
 
 export async function instalacionesRoutes(app: FastifyInstance) {
   /**
@@ -136,13 +114,22 @@ export async function instalacionesRoutes(app: FastifyInstance) {
       );
     }
 
-    return db
+    const filas = await db
       .select(COLUMNAS)
       .from(installations)
       .innerJoin(customers, eq(customers.id, installations.customerId))
       .where(and(...condiciones))
       .orderBy(desc(installations.number))
       .limit(500);
+
+    // El estado de garantia de cada una se CALCULA aqui, de sus fechas y de
+    // hoy; no esta guardado en ningun lado. Una consulta para todas.
+    const hoy = hoyEnElSalvador();
+    const garantias = await garantiasDe(filas.map((f) => f.id));
+    return filas.map((f) => ({
+      ...f,
+      garantia: resumenDeInstalacion(f.deliveredAt, garantias.get(f.id) ?? [], hoy),
+    }));
   });
 
   app.get("/instalaciones/:id", async (req, reply) => {
@@ -164,7 +151,15 @@ export async function instalacionesRoutes(app: FastifyInstance) {
       cotizacion = c ?? null;
     }
 
-    return { ...fila, cotizacion };
+    // La pregunta del dia: ¿esta instalacion esta en garantia, y hasta cuando?
+    const hoy = hoyEnElSalvador();
+    const propias = (await garantiasDe([fila.id])).get(fila.id) ?? [];
+    return {
+      ...fila,
+      cotizacion,
+      garantia: resumenDeInstalacion(fila.deliveredAt, propias, hoy),
+      garantias: propias.map((g) => vistaDeGarantia(g, hoy)),
+    };
   });
 
   /**
@@ -289,6 +284,18 @@ export async function instalacionesRoutes(app: FastifyInstance) {
     });
     if (error) return reply.code(400).send({ error });
 
+    // Corregir la entrega NO mueve las garantias ya cargadas: lo que se
+    // prometio queda como se prometio. Pero hay que enterarse, porque la fecha
+    // de entrega era de donde se habia contado.
+    if (body.deliveredAt !== undefined && body.deliveredAt !== antes.deliveredAt) {
+      const vivas = ((await garantiasDe([id])).get(id) ?? []).filter((g) => !g.annulledAt);
+      if (vivas.length > 0) {
+        avisos.push(
+          `Esta instalación tiene ${vivas.length === 1 ? "una garantía cargada" : `${vivas.length} garantías cargadas`} con la fecha de antes. No se movieron solas: revisalas.`,
+        );
+      }
+    }
+
     const despues = await db.transaction(async (tx) => {
       const cambios: Partial<typeof installations.$inferInsert> = { updatedAt: new Date() };
       if (body.customerId !== undefined) cambios.customerId = body.customerId;
@@ -323,9 +330,8 @@ export async function instalacionesRoutes(app: FastifyInstance) {
   /**
    * Quitar una instalacion cargada por error.
    *
-   * No se borra la fila: se marca. Cuando cuelguen de ella garantias, planes y
-   * visitas, quitarla tendra que negarse mientras tenga alguna viva; hoy no
-   * cuelga nada, asi que no hay nada que negar.
+   * No se borra la fila: se marca. Mientras tenga una garantia viva se niega;
+   * cuando existan planes y visitas, se negara tambien por ellos.
    */
   app.delete("/instalaciones/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -335,6 +341,20 @@ export async function instalacionesRoutes(app: FastifyInstance) {
       .from(installations)
       .where(and(eq(installations.id, id), isNull(installations.deletedAt)));
     if (!antes) return reply.code(404).send({ error: "No encontrado" });
+
+    // Una instalacion con una garantia viva no se quita: seria dejar una
+    // promesa colgando de algo que ya no aparece en ninguna lista. Primero se
+    // anula la garantia, con su motivo.
+    const [viva] = await db
+      .select({ id: warranties.id })
+      .from(warranties)
+      .where(and(eq(warranties.installationId, id), isNull(warranties.deletedAt), isNull(warranties.annulledAt)))
+      .limit(1);
+    if (viva) {
+      return reply.code(409).send({
+        error: "Esta instalación tiene garantías vigentes cargadas. Anulalas primero (con su motivo) y después podés quitarla.",
+      });
+    }
 
     await db.transaction(async (tx) => {
       await tx

@@ -11,6 +11,7 @@ import { quotesRoutes } from "./routes/quotes.js";
 import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { invoicesRoutes } from "./routes/invoices.js";
 import { instalacionesRoutes } from "./routes/instalaciones.js";
+import { garantiasRoutes } from "./routes/garantias.js";
 
 /**
  * Qué piezas tiene cada despliegue.
@@ -48,8 +49,8 @@ export const MODULOS = {
   servicio: {
     // Lo que se instalo y lo que se le debe a quien lo tiene (ver
     // schema-servicio.ts). Cuelga de los clientes, asi que pide «comercial».
-    prefijos: ["instalaciones"],
-    rutas: [instalacionesRoutes],
+    prefijos: ["instalaciones", "garantias"],
+    rutas: [instalacionesRoutes, garantiasRoutes],
   },
 } as const;
 

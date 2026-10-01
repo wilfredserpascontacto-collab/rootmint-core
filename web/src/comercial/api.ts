@@ -80,7 +80,41 @@ export type Instalacion = {
   deliveredAt: string | null;
   notes: string | null; createdAt: string; updatedAt: string;
   cotizacion?: { id: string; number: number } | null;
+  /** Se CALCULA en el servidor de las garantias y de hoy; nunca se guarda. */
+  garantia?: ResumenGarantia;
+  garantias?: Garantia[];
 };
+
+export type ResumenGarantia = {
+  estado: "en_garantia" | "vencida" | "futura" | "sin_garantia" | "sin_fecha";
+  hasta: string | null; diasRestantes: number | null;
+  vencioEl: string | null; haceDias: number | null; empiezaEl: string | null;
+};
+export type Garantia = {
+  id: string; installationId: string; origin: "legal" | "extension";
+  startsAt: string; endsAt: string; priceCents: number;
+  annulledAt: string | null; annulReason: string | null;
+  conditions: string; customerDuties: string; howToClaim: string; issuedBy: string;
+  estado: "vigente" | "vencida" | "futura" | "anulada";
+  diasRestantes: number | null; faltanTextos: string[];
+  instalacion?: { id: string; number: number; label: string; address: string };
+  customer?: { id: string; name: string };
+};
+
+/** Hoy en El Salvador (UTC-6), como dia AAAA-MM-DD. */
+export const hoySV = () => new Date(Date.now() - 6 * 3600e3).toISOString().slice(0, 10);
+const partesDia = (s: string): [number, number, number] => { const [y, m, d] = s.split("-").map(Number); return [y!, m!, d!] };
+const diaTexto = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+export const sumarDiasDia = (s: string, n: number) => { const [y, m, d] = partesDia(s); return diaTexto(Date.UTC(y, m - 1, d) + n * 86400e3) };
+/** Igual que el servidor: si el mes de llegada es mas corto, cae en su ultimo dia (31 ene + 1 mes = 28/29 feb). */
+export const sumarMesesDia = (s: string, n: number) => {
+  const [y, m, d] = partesDia(s); const idx = y * 12 + (m - 1) + n;
+  const ty = Math.floor(idx / 12), tm = (idx % 12) + 1;
+  const ultimo = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+  return diaTexto(Date.UTC(ty, tm - 1, Math.min(d, ultimo)));
+};
+export const diasEntreDias = (a: string, b: string) => { const [y1, m1, d1] = partesDia(a), [y2, m2, d2] = partesDia(b); return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400e3) };
+export const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 export const numeroInstalacion = (n: number) => "INS-" + String(n).padStart(5, "0");
 
 /**
