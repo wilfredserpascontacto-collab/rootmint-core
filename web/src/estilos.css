@@ -117,6 +117,9 @@ button, input, select { font: inherit; color: inherit; }
   text-shadow: var(--brillo);
 }
 
+/* El nombre del sistema no se parte: «GRUPO TITÁN» en dos renglones aprieta el menu. */
+.barra .marca { white-space: nowrap; flex: 0 0 auto; }
+
 .nav { display: flex; align-items: center; gap: clamp(14px, 2vw, 28px); }
 
 .nav a {
