@@ -2,19 +2,19 @@ export type Precio = { id:string; customerId:string; catalogItemId?:string|null;
 export type NotaPlata = { id:string; customerId:string; notedOn:string; body:string };
 export type Customer = { id:string; name:string; creditLimitCents?:number|null; creditTermDays?:number|null; type:"person"|"company"; stage:"prospect"|"customer"; phone?:string; email?:string; address?:string; nit?:string; nrc?:string; notes?:string; active:boolean };
 export type Item = { id:string; name:string; code:string; type:"product"|"service"; unit:string; unitPriceCents:number; category?:string; blockTypeId?:string|null; active:boolean };
-export type Profile = { name:string; phone?:string; email?:string; address?:string; nit?:string; terms?:string };
+export type Profile = { name:string; phone?:string; email?:string; address?:string; nit?:string; nrc?:string; terms?:string };
 export type Line = { catalogItemId?:string|null; description:string; quantity:number; unitPriceCents:number; subtotalCents?:number };
 /** El renglón mientras se edita: el precio vive como texto para no perder lo que se teclea. */
 export type Renglon = { catalogItemId?:string; description:string; quantity:number; precio:string; tocado?:boolean };
 export type Existencia = { blockTypeId:string; code:string; name:string; existencia:number; lotes:number; ultimoLote:string|null; catalogItemId:string|null; catalogItemName:string|null; unitPriceCents:number|null };
 export type MovimientoInv = { id:string; blockTypeId:string; quantity:number; reason:string; refType?:string|null; note?:string|null; notedAt:string };
 /** Lo que falta fabricar de una cotización, renglón por renglón. */
-export type QueProducir = { quoteLineId:string; description:string; pedido:number; esProducible:boolean; sinEnlazar:boolean; enExistencia:number|null; hayQueProducir:number|null; blockTypeId:string|null; blockTypeName:string|null };
+export type QueProducir = { quoteLineId:string; description:string; pedido:number; yaFacturado?:number; esProducible:boolean; sinEnlazar:boolean; enExistencia:number|null; hayQueProducir:number|null; blockTypeId:string|null; blockTypeName:string|null };
 export const MOTIVO_INV:Record<string,string>={produccion:"Producción",venta:"Venta",ajuste:"Ajuste",rotura:"Rotura",devolucion:"Devolución"};
 /** Una orden de producción vista desde el área comercial: lo que se le mandó a fabricar a la planta. */
 export type Orden = { id:string; number:number; quoteId:string|null; customerName:string|null; status:"pendiente"|"en_proceso"|"terminada"|"anulada"; neededBy:string|null; notes:string|null; pedido:number; producido:number; falta:number; avisos?:string[] };
 export const ESTADO_ORDEN:Record<string,string>={pendiente:"Pendiente",en_proceso:"En proceso",terminada:"Terminada",anulada:"Anulada"};
-export type Factura = { id:string; kind:"ccf"|"final"; number:number; customerId:string; quoteId?:string|null; issueDate:string; status:"issued"|"annulled"; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli:number; notes?:string|null; annulledAt?:string|null; annulReason?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
+export type Factura = { id:string; kind:"ccf"|"final"; number:number; customerId:string; quoteId?:string|null; issueDate:string; status:"issued"|"annulled"; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli:number; notes?:string|null; annulledAt?:string|null; annulReason?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[]; cobradoCents?:number; saldoCents?:number };
 /** Un renglón de la cotización con lo que ya se facturó y lo que falta. */
 export type PorFacturar = { quoteLineId:string; description:string; unitPriceCents:number; cotizado:number; facturado:number; pendiente:number };
 /** Los dos documentos de cobro que existen en El Salvador. */
@@ -127,4 +127,24 @@ export const dia = (value: string) => {
   const [y, m, d] = value.slice(0, 10).split("-").map(Number);
   return new Intl.DateTimeFormat("es-SV", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" })
     .format(new Date(Date.UTC(y!, m! - 1, d!)));
+};
+
+
+// --- Cobros --------------------------------------------------------------
+
+export type Cobro = { id:string; invoiceId:string; amountCents:number; paidOn:string; method:"efectivo"|"transferencia"|"cheque"|"tarjeta"|"otro"; reference?:string|null; note?:string|null; annulledAt?:string|null; annulReason?:string|null };
+export type CobrosDeFactura = { invoiceId:string; status:"issued"|"annulled"; totalCents:number; cobradoCents:number; saldoCents:number; pagos:Cobro[] };
+export const METODO_COBRO:Record<string,string>={efectivo:"Efectivo",transferencia:"Transferencia",cheque:"Cheque",tarjeta:"Tarjeta",otro:"Otro"};
+export type EstadoFactura = "pagada"|"vencida"|"parcial"|"pendiente"|"anulada";
+export const ESTADO_FACTURA:Record<string,string>={pagada:"Pagada",vencida:"Vencida",parcial:"Pago parcial",pendiente:"Pendiente",anulada:"Anulada"};
+export type EstadoCuenta = {
+  customer:{ id:string; name:string; nit?:string|null; nrc?:string|null; creditLimitCents?:number|null; creditTermDays?:number|null };
+  facturas:{ id:string; kind:"ccf"|"final"; number:number; issueDate:string; dueDate:string|null; status:"issued"|"annulled"; estado:EstadoFactura; totalCents:number; cobradoCents:number; saldoCents:number; diasVencida:number|null }[];
+  pagos:(Cobro & { invoiceNumber:number|null; invoiceKind:"ccf"|"final"|null })[];
+  totales:{ facturadoCents:number; cobradoCents:number; saldoCents:number; vencidoCents:number };
+  avisos:string[];
+};
+export type PorCobrar = {
+  clientes:{ customerId:string; name:string; phone:string|null; saldoCents:number; vencidoCents:number; facturasPendientes:number; diasDesdeLaMasVieja:number|null; creditLimitCents:number|null; pasaDelTope:boolean }[];
+  totales:{ saldoCents:number; vencidoCents:number };
 };

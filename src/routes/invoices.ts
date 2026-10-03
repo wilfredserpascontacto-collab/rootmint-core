@@ -6,6 +6,7 @@ import {
   businessProfile,
   catalogItems,
   customers,
+  inventoryMoves,
   invoiceLines,
   invoices,
   quoteLines,
@@ -15,15 +16,17 @@ import { quoteTotals } from "../lib/quote-math.js";
 import { logActivity } from "../lib/activity-log.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { getUserId } from "../lib/request-context.js";
+import { existenciaDe, moverInventario } from "./inventario.js";
+import { cobradoPorFactura } from "./pagos.js";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Cada serie lleva su propio contador: hay una factura 1 de cada tipo. */
 const CONTADOR = { ccf: "invoice:ccf", final: "invoice:final" } as const;
 
 const NOMBRE_TIPO = {
-  ccf: "comprobante de crédito fiscal",
-  final: "factura de consumidor final",
+  ccf: "Crédito fiscal",
+  final: "Factura de consumidor final",
 } as const;
 
 const lineaSchema = z.object({
@@ -114,7 +117,7 @@ async function resolverLineas(
  * error corregido al dia siguiente dejaria la cotizacion como facturada para
  * siempre.
  */
-async function pendientePorFacturar(tx: Tx, quoteId: string) {
+export async function pendientePorFacturar(tx: Tx, quoteId: string) {
   const renglones = await tx
     .select()
     .from(quoteLines)
@@ -142,6 +145,82 @@ async function pendientePorFacturar(tx: Tx, quoteId: string) {
   }));
 }
 
+/**
+ * A cada renglon le pone el producto del catalogo del que salio la cotizacion.
+ *
+ * Cuando se factura "lo que falte" de una cotizacion, los renglones llegan con
+ * descripcion y precio pero sin producto, y sin producto no se sabe que bloque
+ * sale del patio.
+ */
+async function completarProducto(
+  tx: Tx,
+  renglones: (typeof invoiceLines.$inferInsert)[],
+) {
+  const ids = renglones
+    .filter((r) => !r.catalogItemId && r.quoteLineId)
+    .map((r) => r.quoteLineId as string);
+  if (ids.length === 0) return;
+  const deCotizacion = await tx
+    .select({ id: quoteLines.id, catalogItemId: quoteLines.catalogItemId })
+    .from(quoteLines)
+    .where(inArray(quoteLines.id, ids));
+  const porId = new Map(deCotizacion.map((q) => [q.id, q.catalogItemId]));
+  for (const r of renglones) {
+    if (!r.catalogItemId && r.quoteLineId) r.catalogItemId = porId.get(r.quoteLineId) ?? null;
+  }
+}
+
+/**
+ * Lo facturado sale del patio, en el mismo acto que la factura.
+ *
+ * Solo salen los renglones cuyo producto esta enlazado a un tipo de bloque:
+ * la mano de obra o el flete no tienen patio. Si no alcanza la existencia no se
+ * impide facturar —puede que falte registrar produccion, no que falten
+ * bloques— pero se avisa, porque un negativo que nadie ve no se corrige.
+ */
+async function descontarDelPatio(
+  tx: Tx,
+  renglones: (typeof invoiceLines.$inferInsert)[],
+  factura: { id: string; number: number; kind: "ccf" | "final" },
+  userId: string | null,
+): Promise<string[]> {
+  const ids = renglones.map((r) => r.catalogItemId).filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return [];
+  const productos = await tx.select().from(catalogItems).where(inArray(catalogItems.id, ids));
+  const tipoDe = new Map(productos.map((p) => [p.id, p]));
+
+  const porTipo = new Map<string, { cantidad: number; nombre: string }>();
+  for (const r of renglones) {
+    const producto = r.catalogItemId ? tipoDe.get(r.catalogItemId) : undefined;
+    if (!producto?.blockTypeId) continue;
+    const previo = porTipo.get(producto.blockTypeId);
+    porTipo.set(producto.blockTypeId, {
+      cantidad: (previo?.cantidad ?? 0) + r.quantity,
+      nombre: producto.name,
+    });
+  }
+
+  const avisos: string[] = [];
+  for (const [blockTypeId, { cantidad, nombre }] of porTipo) {
+    const antes = await existenciaDe(tx, blockTypeId);
+    await moverInventario(tx, {
+      blockTypeId,
+      quantity: -cantidad,
+      reason: "venta",
+      refType: "invoice",
+      refId: factura.id,
+      note: `${NOMBRE_TIPO[factura.kind]} N° ${factura.number}`,
+      userId,
+    });
+    if (antes - cantidad < 0) {
+      avisos.push(
+        `De «${nombre}» había ${antes} en el patio y se facturaron ${cantidad}: la existencia quedó en ${antes - cantidad}. Casi siempre significa que faltó registrar producción, no que falten bloques.`,
+      );
+    }
+  }
+  return avisos;
+}
+
 export async function invoicesRoutes(app: FastifyInstance) {
   app.get("/invoices", async (req) => {
     const { customerId, quoteId } = req.query as { customerId?: string; quoteId?: string };
@@ -149,11 +228,19 @@ export async function invoicesRoutes(app: FastifyInstance) {
     if (customerId) filtros.push(eq(invoices.customerId, customerId));
     if (quoteId) filtros.push(eq(invoices.quoteId, quoteId));
 
-    return db
+    const filas = await db
       .select()
       .from(invoices)
       .where(and(...filtros))
       .orderBy(desc(invoices.issueDate), desc(invoices.number));
+    const cobrado = await cobradoPorFactura(
+      db,
+      filas.map((f) => f.id),
+    );
+    return filas.map((f) => {
+      const c = f.status === "annulled" ? 0 : (cobrado.get(f.id) ?? 0);
+      return { ...f, cobradoCents: c, saldoCents: f.status === "annulled" ? 0 : f.totalCents - c };
+    });
   });
 
   app.get("/invoices/:id", async (req, reply) => {
@@ -165,7 +252,14 @@ export async function invoicesRoutes(app: FastifyInstance) {
       .from(invoiceLines)
       .where(and(eq(invoiceLines.invoiceId, id), isNull(invoiceLines.deletedAt)))
       .orderBy(invoiceLines.displayOrder);
-    return { ...factura, lines: lineas };
+    const cobrado =
+      factura.status === "annulled" ? 0 : ((await cobradoPorFactura(db, [id])).get(id) ?? 0);
+    return {
+      ...factura,
+      lines: lineas,
+      cobradoCents: cobrado,
+      saldoCents: factura.status === "annulled" ? 0 : factura.totalCents - cobrado,
+    };
   });
 
   /** Que falta facturar de una cotizacion, renglon por renglon. */
@@ -249,6 +343,7 @@ export async function invoicesRoutes(app: FastifyInstance) {
       }
 
       const { renglones } = await resolverLineas(tx, entrada);
+      await completarProducto(tx, renglones);
 
       // --- Avisar si se pasa de lo cotizado --------------------------------
       // Avisar, no impedir: a veces se entrega mas de lo que decia el papel, y
@@ -280,6 +375,11 @@ export async function invoicesRoutes(app: FastifyInstance) {
       const number = await nextCorrelativo(tx, CONTADOR[kind]);
 
       const [perfil] = await tx.select().from(businessProfile).limit(1);
+      if (kind === "ccf" && !(perfil?.nrc ?? "").trim()) {
+        avisos.push(
+          "Tu empresa no tiene NRC cargado. Un crédito fiscal lleva el NRC de quien lo emite: cargalo en Mi empresa.",
+        );
+      }
 
       const [factura] = await tx
         .insert(invoices)
@@ -306,6 +406,15 @@ export async function invoicesRoutes(app: FastifyInstance) {
         .insert(invoiceLines)
         .values(renglones.map((r) => ({ ...r, invoiceId: factura.id })));
 
+      avisos.push(
+        ...(await descontarDelPatio(
+          tx,
+          renglones,
+          { id: factura.id, number: factura.number, kind: factura.kind },
+          getUserId(req),
+        )),
+      );
+
       await logActivity(tx, {
         userId: getUserId(req),
         entity: "invoices",
@@ -331,11 +440,24 @@ export async function invoicesRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const body = anularSchema.parse(req.body);
 
+    let devueltos = 0;
     const anulada = await db.transaction(async (tx) => {
       const [antes] = await tx.select().from(invoices).where(eq(invoices.id, id));
       if (!antes) return null;
       if (antes.status === "annulled") {
         throw Object.assign(new Error("Esa factura ya estaba anulada."), { statusCode: 409 });
+      }
+
+      // Anular una factura con plata cobrada dejaria ese dinero sin factura.
+      // Primero se anulan los cobros, cada uno con su motivo.
+      const vivos = (await cobradoPorFactura(tx, [id])).get(id) ?? 0;
+      if (vivos > 0) {
+        throw Object.assign(
+          new Error(
+            `Esta factura tiene $${(vivos / 100).toFixed(2)} cobrados. Anulá primero esos cobros (cada uno con su motivo) y después la factura.`,
+          ),
+          { statusCode: 409 },
+        );
       }
 
       const [despues] = await tx
@@ -349,6 +471,32 @@ export async function invoicesRoutes(app: FastifyInstance) {
         })
         .where(eq(invoices.id, id))
         .returning();
+
+      // Los bloques que salieron con la factura vuelven al patio. Se devuelve
+      // lo que de verdad salio (leyendo los movimientos), no lo que hoy diga
+      // el catalogo: si el producto se enlazo o desenlazo despues, no importa.
+      const salidas = await tx
+        .select({
+          blockTypeId: inventoryMoves.blockTypeId,
+          cantidad: sql<number>`sum(${inventoryMoves.quantity})::int`,
+        })
+        .from(inventoryMoves)
+        .where(and(eq(inventoryMoves.refType, "invoice"), eq(inventoryMoves.refId, id)))
+        .groupBy(inventoryMoves.blockTypeId);
+      for (const s of salidas) {
+        const neto = Number(s.cantidad) || 0;
+        if (neto >= 0) continue;
+        devueltos += -neto;
+        await moverInventario(tx, {
+          blockTypeId: s.blockTypeId,
+          quantity: -neto,
+          reason: "devolucion",
+          refType: "invoice",
+          refId: id,
+          note: `Anulación de la factura N° ${antes.number}`,
+          userId: getUserId(req),
+        });
+      }
 
       await logActivity(tx, {
         userId: getUserId(req),
@@ -366,7 +514,10 @@ export async function invoicesRoutes(app: FastifyInstance) {
     return {
       ...anulada,
       avisos: [
-        `Quedó anulada la ${NOMBRE_TIPO[anulada.kind]} número ${anulada.number}. El número no se reusa: la próxima sigue la serie.`,
+        `Quedó anulado el documento: ${NOMBRE_TIPO[anulada.kind].toLowerCase()} número ${anulada.number}. El número no se reusa: la próxima sigue la serie.`,
+        ...(devueltos > 0
+          ? [`Los ${devueltos} bloques de esa factura volvieron al patio.`]
+          : []),
       ],
     };
   });

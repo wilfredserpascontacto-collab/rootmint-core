@@ -10,6 +10,7 @@ import { catalogItemsRoutes } from "./routes/catalog-items.js";
 import { quotesRoutes } from "./routes/quotes.js";
 import { customerFinanceRoutes } from "./routes/customer-finance.js";
 import { invoicesRoutes } from "./routes/invoices.js";
+import { pagosRoutes } from "./routes/pagos.js";
 import { instalacionesRoutes } from "./routes/instalaciones.js";
 import { garantiasRoutes } from "./routes/garantias.js";
 
@@ -31,8 +32,8 @@ import { garantiasRoutes } from "./routes/garantias.js";
  */
 export const MODULOS = {
   comercial: {
-    prefijos: ["customers", "contacts", "catalog-items", "quotes", "invoices", "customer-prices", "customer-notes"],
-    rutas: [customersRoutes, contactsRoutes, catalogItemsRoutes, quotesRoutes, customerFinanceRoutes, invoicesRoutes],
+    prefijos: ["customers", "contacts", "catalog-items", "quotes", "invoices", "customer-prices", "customer-notes", "pagos", "cobros"],
+    rutas: [customersRoutes, contactsRoutes, catalogItemsRoutes, quotesRoutes, customerFinanceRoutes, invoicesRoutes, pagosRoutes],
   },
   bloques: {
     // «inventario» y «ordenes» son de la fábrica aunque el área comercial las

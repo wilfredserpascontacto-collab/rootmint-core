@@ -37,6 +37,7 @@ import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { existencias } from "./inventario.js";
+import { pendientePorFacturar } from "./invoices.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -358,6 +359,10 @@ export async function ordenesRoutes(app: FastifyInstance) {
     const tipos = await db.select().from(blockTypes);
     const stock = await existencias(db);
     const prometido = await comprometido(db);
+    // Lo que ya se facturo ya salio del patio: no hay que fabricarlo otra vez.
+    const pendiente = new Map(
+      (await pendientePorFacturar(db as never, body.quoteId)).map((p) => [p.quoteLineId, p.pendiente]),
+    );
 
     const avisos: string[] = [];
     const aFabricar: {
@@ -383,7 +388,8 @@ export async function ordenesRoutes(app: FastifyInstance) {
       const enPatio = stock.get(tipo.id) ?? 0;
       const yaPrometido = prometido.get(tipo.id) ?? 0;
       const disponible = Math.max(0, enPatio - yaPrometido);
-      const falta = Math.max(0, r.quantity - disponible);
+      const porEntregar = Math.max(0, pendiente.get(r.id) ?? r.quantity);
+      const falta = Math.max(0, porEntregar - disponible);
 
       if (yaPrometido > 0 && enPatio > 0) {
         avisos.push(

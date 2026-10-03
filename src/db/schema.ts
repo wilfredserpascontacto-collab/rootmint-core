@@ -424,6 +424,46 @@ export const invoiceLines = pgTable("invoice_lines", {
   ...timestamps,
 });
 
+// --- Lo que el cliente va pagando ------------------------------------------
+
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "efectivo",
+  "transferencia",
+  "cheque",
+  "tarjeta",
+  "otro",
+]);
+
+/**
+ * Un cobro: plata que entro contra una factura.
+ *
+ * Una factura puede cobrarse en varias veces —el cliente de una obra paga por
+ * partes—, asi que el saldo nunca se guarda: se calcula siempre como el total
+ * de la factura menos lo cobrado. Un saldo guardado se desincroniza el dia que
+ * alguien anota mal un pago, igual que pasa con el inventario.
+ *
+ * Un cobro equivocado no se borra: se anula con su motivo, y deja de contar.
+ * Quien pregunte dentro de seis meses por que el saldo de un cliente cambio
+ * tiene que poder verlo escrito.
+ */
+export const payments = pgTable("payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  invoiceId: uuid("invoice_id")
+    .notNull()
+    .references(() => invoices.id),
+  amountCents: integer("amount_cents").notNull(),
+  paidOn: timestamp("paid_on", { withTimezone: true }).notNull().defaultNow(),
+  method: paymentMethodEnum("method").notNull().default("efectivo"),
+  /** Numero de cheque, de transferencia o de recibo: lo que permite encontrarlo en el banco. */
+  reference: text("reference"),
+  note: text("note"),
+  annulledAt: timestamp("annulled_at", { withTimezone: true }),
+  annulReason: text("annul_reason"),
+  annulledBy: uuid("annulled_by").references(() => users.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
 // --- Rastro ----------------------------------------------------------------
 
 export const activityLog = pgTable("activity_log", {
@@ -446,6 +486,8 @@ export const businessProfile = pgTable("business_profile", {
   phone: text("phone").notNull().default(""),
   email: text("email").notNull().default(""),
   nit: text("nit").notNull().default(""),
+  /** El NRC del emisor: un credito fiscal sin el no le sirve al cliente. */
+  nrc: text("nrc").notNull().default(""),
   terms: text("terms").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

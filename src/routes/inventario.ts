@@ -6,6 +6,7 @@ import { catalogItems, inventoryMoves, quoteLines, quotes } from "../db/schema.j
 import { batches, blockTypes } from "../db/schema-bloques.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
+import { pendientePorFacturar } from "./invoices.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -193,7 +194,14 @@ export async function inventarioRoutes(app: FastifyInstance) {
     const productos = await db.select().from(catalogItems);
     const tipos = await db.select().from(blockTypes);
 
+    // Lo ya facturado ya salio del patio: no se vuelve a pedir fabricarlo. Sin
+    // esto, una cotizacion entregada por completo diria "faltan 1.000".
+    const pendiente = new Map(
+      (await pendientePorFacturar(db as never, id)).map((p) => [p.quoteLineId, p.pendiente]),
+    );
+
     const lineas = renglones.map((r) => {
+      const porEntregar = Math.max(0, pendiente.get(r.id) ?? r.quantity);
       const producto = r.catalogItemId ? productos.find((p) => p.id === r.catalogItemId) : undefined;
       const tipo = producto?.blockTypeId ? tipos.find((t) => t.id === producto.blockTypeId) : undefined;
 
@@ -221,8 +229,9 @@ export async function inventarioRoutes(app: FastifyInstance) {
         esProducible: true,
         sinEnlazar: false,
         enExistencia: hay,
+        yaFacturado: r.quantity - porEntregar,
         // Nunca negativo: si sobra existencia, lo que falta producir es cero.
-        hayQueProducir: Math.max(0, r.quantity - hay),
+        hayQueProducir: Math.max(0, porEntregar - hay),
         blockTypeId: tipo.id,
         blockTypeName: tipo.name,
       };

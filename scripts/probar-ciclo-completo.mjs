@@ -41,12 +41,12 @@ const perfil = await pedir("/business-profile", {
   name: "Grupo Titán, S.A. de C.V.",
   address: "Km 24 Carretera a Santa Ana",
   phone: "2222-3333", email: "ventas@bloquestitan.sv",
-  nit: "0614-010101-101-1",
+  nit: "0614-010101-101-1", nrc: "12345-6",
 }, "PUT");
 ok(perfil.estado < 300, "se pueden cargar nombre, dirección y NIT");
 const p = (await pedir("/business-profile")).cuerpo;
-ok("nrc" in (p ?? {}), "y el NRC, que un crédito fiscal necesita del emisor",
-   "nrc" in (p ?? {}) ? "" : "NO EXISTE el campo NRC de la empresa");
+ok(p?.nrc === "12345-6", "y el NRC, que un crédito fiscal necesita del emisor",
+   p?.nrc === "12345-6" ? "" : "NO EXISTE el campo NRC de la empresa");
 
 console.log("\n─── 3 · QUÉ SE FABRICA ───");
 const tipos = (await pedir("/bloques/tipos")).cuerpo ?? [];
@@ -110,6 +110,9 @@ ok(fac.estado < 300, "se factura la cotización");
 ok(fac.cuerpo.kind === "ccf", "y sale crédito fiscal, porque el cliente tiene NRC", fac.cuerpo.kind);
 ok(fac.cuerpo.businessSnapshot?.name === "Grupo Titán, S.A. de C.V.",
    "el papel sale con los datos de la empresa", fac.cuerpo.businessSnapshot?.name);
+ok(fac.cuerpo.businessSnapshot?.nrc === "12345-6", "y con el NRC del emisor congelado en la factura",
+   fac.cuerpo.businessSnapshot?.nrc);
+ok(!(fac.cuerpo.avisos ?? []).some((a) => /NRC cargado/.test(a)), "sin avisar que falta el NRC de la empresa");
 
 console.log("\n─── 9 · ¿Y DESPUÉS DE FACTURAR? ───");
 const patio2 = (await pedir("/inventario")).cuerpo.find((x) => x.blockTypeId === tipo.id);

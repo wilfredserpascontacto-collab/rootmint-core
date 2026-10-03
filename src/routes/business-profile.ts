@@ -10,12 +10,12 @@ const input = z.object({
   name: z.string().trim().min(1).max(160),
   address: z.string().max(500).default(""), phone: z.string().max(60).default(""),
   email: z.union([z.literal(""), z.string().email()]).default(""),
-  nit: z.string().max(40).default(""), terms: z.string().max(5000).default(""),
+  nit: z.string().max(40).default(""), nrc: z.string().max(40).default(""), terms: z.string().max(5000).default(""),
 });
 export async function businessProfileRoutes(app: FastifyInstance) {
   app.get("/business-profile", async () => {
     const [profile] = await db.select().from(businessProfile).where(eq(businessProfile.id, 1));
-    return profile ?? { name: "Mi empresa", address: "", phone: "", email: "", nit: "", terms: "" };
+    return profile ?? { name: "Mi empresa", address: "", phone: "", email: "", nit: "", nrc: "", terms: "" };
   });
   app.put("/business-profile", async (req) => {
     const body = input.parse(req.body);
