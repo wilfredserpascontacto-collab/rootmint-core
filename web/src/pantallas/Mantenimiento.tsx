@@ -145,8 +145,8 @@ function Tarjeta({
 
   return (
     <div className="tarjeta" style={{ padding: "18px 22px", borderLeft: `3px solid ${color}` }}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 2fr) minmax(200px, 1.4fr) auto", gap: 20, alignItems: "center" }}>
-        <div className="pila" style={{ gap: 5 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+        <div className="pila" style={{ gap: 5, flex: "2 1 240px", minWidth: 0 }}>
           <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 16, fontWeight: 600 }}>{t.nombre}</span>
             <span className={`insignia ${CLASE[t.estado]}`}>{t.estado}</span>
@@ -160,7 +160,7 @@ function Tarjeta({
           </span>
         </div>
 
-        <div className="pila" style={{ gap: 6 }}>
+        <div className="pila" style={{ gap: 6, flex: "1.4 1 200px", minWidth: 0 }}>
           {editando ? (
             <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 14, color: "var(--apagado)" }}>cada</span>

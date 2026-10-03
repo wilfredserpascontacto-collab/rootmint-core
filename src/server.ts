@@ -12,8 +12,8 @@ import { businessProfileRoutes } from "./routes/business-profile.js";
 import { modulosActivos, registrarModulos, PREFIJOS_CONOCIDOS } from "./modulos.js";
 import { quienViene } from "./lib/auth.js";
 
-export async function buildServer() {
-  const app = Fastify({ logger: true });
+export async function buildServer(opciones: { silencioso?: boolean } = {}) {
+  const app = Fastify({ logger: !opciones.silencioso });
 
   /**
    * De donde se aceptan peticiones.

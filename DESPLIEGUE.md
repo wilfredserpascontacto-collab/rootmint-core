@@ -70,6 +70,23 @@ para Fénix cambiando dos variables (abajo).
    dueña lo aprueba). Desde ahí, cada compra se anota en Compras y cada lote
    descuenta solo lo que usó. Mientras no haya un conteo, el sistema parte de
    cero y avisa cuando un lote deja un material en negativo.
+6. **Ver la planta funcionando antes de tener la máquina** (opcional, solo con
+   `bloques`): en la misma terminal,
+
+   ```
+   node dist/db/demo-planta.js
+   ```
+
+   carga una jornada inventada: precios, dos compras, dos recetas, cuatro
+   lotes con sus ensayos, dos órdenes y mantenimiento, todo marcado «(demo)» o
+   «Datos de ejemplo». Se niega a correr si ya hay lotes reales. Para borrarlo
+   y empezar de verdad:
+
+   ```
+   node dist/db/demo-planta.js --quitar
+   ```
+
+   Los precios de los materiales se quedan (hay que ponerlos de todos modos).
 
 ## Actualizar
 
