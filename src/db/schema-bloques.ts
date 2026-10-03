@@ -151,6 +151,11 @@ export const materials = pgTable("materials", {
     .default(1000),
   /** kg por metro cubico. Permite pasar de volumen a masa cuando hace falta. */
   bulkDensityKgM3: integer("bulk_density_kg_m3"),
+  /**
+   * Debajo de esto hay que comprar, en milesimas de la unidad de dosificacion.
+   * Nulo: nadie ha dicho cuanto es poco, y el sistema no inventa un minimo.
+   */
+  minStockMilli: integer("min_stock_milli"),
   active: boolean("active").notNull().default(true),
   createdBy: uuid("created_by").references(() => users.id),
   ...timestamps,
@@ -483,4 +488,208 @@ export const maintenanceLogs = pgTable(
     ...timestamps,
   },
   (t) => ({ porTarea: index("maintenance_logs_task_idx").on(t.taskId) }),
+);
+
+// --- Almacen: lo que se compra y lo que hay de materia prima ---------------
+
+export const materialMoveReasonEnum = pgEnum("material_move_reason", [
+  "compra",
+  "consumo",
+  "ajuste",
+  "merma",
+  "devolucion",
+]);
+
+export const purchaseStatusEnum = pgEnum("purchase_status", ["abierta", "cancelada"]);
+
+export const countStatusEnum = pgEnum("count_status", ["abierto", "aprobado", "cancelado"]);
+
+/** A quien se le compra. Solo proveedores de insumos: no hay compra de producto terminado. */
+export const suppliers = pgTable("suppliers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  nit: text("nit"),
+  nrc: text("nrc"),
+  contactName: text("contact_name"),
+  phone: text("phone"),
+  email: text("email"),
+  address: text("address"),
+  notes: text("notes"),
+  active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+/**
+ * Una compra: lo que se le pidio a un proveedor.
+ *
+ * Pedirla NO mete nada al almacen. Lo que lo mete es la recepcion, que puede
+ * ser parcial y en varias fechas. Tampoco hay aca ningun pago: la deuda con el
+ * proveedor es otra pieza, y el documento del proveedor, otro dato.
+ */
+export const purchases = pgTable("purchases", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: integer("number").notNull().unique(),
+  supplierId: uuid("supplier_id")
+    .notNull()
+    .references(() => suppliers.id),
+  orderedOn: timestamp("ordered_on", { withTimezone: true }).notNull().defaultNow(),
+  /** Numero del documento del proveedor, si ya lo mando. */
+  documentRef: text("document_ref"),
+  notes: text("notes"),
+  status: purchaseStatusEnum("status").notNull().default("abierta"),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+/**
+ * Lo pedido, con nombre, unidad y conversion congelados.
+ *
+ * Cantidad y costo van en la unidad de COMPRA (bolsa, metro cubico). La
+ * conversion a la unidad en que se dosifica se congela aqui, igual que el
+ * costo del lote: si manana la bolsa cambia de contenido, esta compra sigue
+ * valiendo lo que valia.
+ */
+export const purchaseLines = pgTable(
+  "purchase_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purchaseId: uuid("purchase_id")
+      .notNull()
+      .references(() => purchases.id),
+    materialId: uuid("material_id")
+      .notNull()
+      .references(() => materials.id),
+    description: text("description").notNull(),
+    purchaseUnit: text("purchase_unit").notNull(),
+    /** Cuantas unidades de dosificacion trae una de compra, en milesimas. */
+    contentPerPurchaseMilli: integer("content_per_purchase_milli").notNull(),
+    quantityMilli: integer("quantity_milli").notNull(),
+    unitCostCents: integer("unit_cost_cents").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({ porCompra: index("purchase_lines_purchase_idx").on(t.purchaseId) }),
+);
+
+/** Una llegada de mercaderia. Una compra puede tener varias. */
+export const purchaseReceipts = pgTable(
+  "purchase_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: integer("number").notNull().unique(),
+    purchaseId: uuid("purchase_id")
+      .notNull()
+      .references(() => purchases.id),
+    receivedOn: timestamp("received_on", { withTimezone: true }).notNull().defaultNow(),
+    /** Remision o factura que trae el proveedor con esta entrega. */
+    documentRef: text("document_ref"),
+    notes: text("notes"),
+    annulledAt: timestamp("annulled_at", { withTimezone: true }),
+    annulReason: text("annul_reason"),
+    annulledBy: uuid("annulled_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    ...timestamps,
+  },
+  (t) => ({ porCompra: index("purchase_receipts_purchase_idx").on(t.purchaseId) }),
+);
+
+export const purchaseReceiptLines = pgTable(
+  "purchase_receipt_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => purchaseReceipts.id),
+    purchaseLineId: uuid("purchase_line_id")
+      .notNull()
+      .references(() => purchaseLines.id),
+    materialId: uuid("material_id")
+      .notNull()
+      .references(() => materials.id),
+    /** Lo recibido, en unidades de compra. */
+    quantityMilli: integer("quantity_milli").notNull(),
+    /** Lo mismo ya convertido a la unidad de dosificacion: lo que entra al almacen. */
+    dosingQuantityMilli: integer("dosing_quantity_milli").notNull(),
+    /** Lo que costo de verdad, que puede no ser lo pedido. */
+    unitCostCents: integer("unit_cost_cents").notNull(),
+    costCents: integer("cost_cents").notNull(),
+    ...timestamps,
+  },
+  (t) => ({ porRecepcion: index("purchase_receipt_lines_receipt_idx").on(t.receiptId) }),
+);
+
+/**
+ * Cada vez que un material entra o sale. La existencia es la suma de esta tabla.
+ *
+ * Misma regla que el patio de bloques: no hay ninguna columna "existencia".
+ * Un error se corrige con otro movimiento, no editando ni borrando.
+ */
+export const materialMoves = pgTable(
+  "material_moves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    materialId: uuid("material_id")
+      .notNull()
+      .references(() => materials.id),
+    /** En milesimas de la unidad de dosificacion. Positivo entra, negativo sale. */
+    quantityMilli: integer("quantity_milli").notNull(),
+    reason: materialMoveReasonEnum("reason").notNull(),
+    refType: text("ref_type"),
+    refId: uuid("ref_id"),
+    /** Lo que valia lo que entro, cuando se sabe (una compra). Los consumos y ajustes lo dejan en nulo. */
+    costCents: integer("cost_cents"),
+    note: text("note"),
+    notedAt: timestamp("noted_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    porMaterial: index("material_moves_material_idx").on(t.materialId),
+    porOrigen: index("material_moves_ref_idx").on(t.refType, t.refId),
+  }),
+);
+
+/**
+ * Un conteo fisico: alguien recorre la bodega y cuenta.
+ *
+ * Al abrirlo se congela lo que el sistema creia que habia (expected). Lo
+ * contado se compara contra eso, y al aprobar se registra la DIFERENCIA como
+ * un movimiento de ajuste: si entro o salio algo mientras se contaba, no se
+ * pisa, se suma.
+ */
+export const materialCounts = pgTable("material_counts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: integer("number").notNull().unique(),
+  status: countStatusEnum("status").notNull().default("abierto"),
+  notes: text("notes"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+export const materialCountLines = pgTable(
+  "material_count_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    countId: uuid("count_id")
+      .notNull()
+      .references(() => materialCounts.id),
+    materialId: uuid("material_id")
+      .notNull()
+      .references(() => materials.id),
+    description: text("description").notNull(),
+    unitAbbreviation: text("unit_abbreviation").notNull(),
+    expectedMilli: integer("expected_milli").notNull(),
+    /** Nulo: todavia no se conto. Cero es un conteo valido: contaron y no hay nada. */
+    countedMilli: integer("counted_milli"),
+    note: text("note"),
+    ...timestamps,
+  },
+  (t) => ({ porConteo: index("material_count_lines_count_idx").on(t.countId) }),
 );

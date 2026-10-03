@@ -28,11 +28,13 @@ import {
   maintenanceLogs,
   productionOrders,
   productionOrderLines,
+  materialMoves,
 } from "../db/schema-bloques.js";
-import { counters } from "../db/schema.js";
+import { counters, inventoryMoves } from "../db/schema.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { moverInventario } from "./inventario.js";
+import { existenciaDeMaterial, moverMaterial } from "./almacen.js";
 import { revisarOrden } from "./ordenes.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { recetaConCosto, fichaDelLote, lotesRecientes, leerResolver } from "../bloques/servicio.js";
@@ -305,6 +307,7 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
      */
     const mantenimientoVencido = await vencidasAhora();
 
+    const avisosAlmacen: string[] = [];
     const creado = await db.transaction(async (tx) => {
       const numero = await nextCorrelativo(tx, "batch");
 
@@ -346,6 +349,42 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
       if (!lote) throw new Error("No se pudo crear el lote");
 
       await tx.insert(batchLines).values(congeladas.map((c) => ({ ...c, batchId: lote.id })));
+
+      /**
+       * Lo que se uso sale del almacen en el mismo acto que el lote.
+       *
+       * Un lote que se guarda sin su consumo deja el almacen diciendo que hay
+       * material que ya se uso, y ese desfase no se ve hasta el proximo conteo.
+       * Si no alcanzaba la existencia no se impide producir —el bloque ya se
+       * hizo—, pero se avisa: casi siempre falta una compra o un conteo.
+       */
+      const usos = new Map<string, { cantidad: number; nombre: string; unidad: string }>();
+      for (const c of congeladas) {
+        if (!c.materialId) continue;
+        const previo = usos.get(c.materialId);
+        usos.set(c.materialId, {
+          cantidad: (previo?.cantidad ?? 0) + c.quantityMilli,
+          nombre: c.description,
+          unidad: c.unitAbbreviation,
+        });
+      }
+      for (const [materialId, uso] of usos) {
+        const antes = await existenciaDeMaterial(tx, materialId);
+        await moverMaterial(tx, {
+          materialId,
+          quantityMilli: -uso.cantidad,
+          reason: "consumo",
+          refType: "batch",
+          refId: lote.id,
+          note: `Lote ${lote.number}`,
+          userId: getUserId(req),
+        });
+        if (antes - uso.cantidad < 0) {
+          avisosAlmacen.push(
+            `De «${uso.nombre}» el almacén tenía ${Math.max(0, antes) / 1000} ${uso.unidad} y el lote usó ${uso.cantidad / 1000}: quedó en ${(antes - uso.cantidad) / 1000}. Falta registrar una compra o hacer un conteo físico.`,
+          );
+        }
+      }
 
       /**
        * Lo que se produjo entra al inventario en el mismo acto.
@@ -391,7 +430,8 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
     });
 
     const ficha = await fichaDelLote(creado.lote.id);
-    return reply.code(201).send(creado.aviso ? { ...ficha, avisos: [creado.aviso] } : ficha);
+    const avisosDelLote = [...(creado.aviso ? [creado.aviso] : []), ...avisosAlmacen];
+    return reply.code(201).send(avisosDelLote.length ? { ...ficha, avisos: avisosDelLote } : ficha);
   });
 
   /**
@@ -673,6 +713,10 @@ export async function bloquesProduccionRoutes(app: FastifyInstance) {
 
       // El orden importa: primero lo que apunta a los lotes.
       await tx.delete(tests);
+      // Lo que esos lotes movieron en el almacen y en el patio se va con ellos:
+      // sin esto, el patio seguiria mostrando bloques de lotes que ya no existen.
+      await tx.delete(materialMoves).where(eq(materialMoves.refType, "batch"));
+      await tx.delete(inventoryMoves).where(eq(inventoryMoves.refType, "batch"));
       await tx.delete(batchLines);
       await tx.delete(maintenanceLogs);
       await tx.delete(batches);

@@ -436,3 +436,4 @@ button, input, select { font: inherit; color: inherit; }
   .telemetria .plano.cerca { grid-template-columns: 1fr; }
   .telemetria .plano.cerca .linea { font-size: 17px; line-height: 25px; }
 }
+.c-nw { white-space: nowrap; }

@@ -65,6 +65,11 @@ para Fénix cambiando dos variables (abajo).
 4. Cargar los precios de los materiales, enlazar cada producto del catálogo
    con su tipo de bloque (Productos → enlazar) y contar el patio una vez
    (Inventario → ajustar), para que la existencia de partida sea la real.
+5. **Almacén** (solo con `bloques`): dar de alta los proveedores y cargar lo que
+   hay hoy de cada material con **Almacén → Conteos → Abrir un conteo** (la
+   dueña lo aprueba). Desde ahí, cada compra se anota en Compras y cada lote
+   descuenta solo lo que usó. Mientras no haya un conteo, el sistema parte de
+   cero y avisa cuando un lote deja un material en negativo.
 
 ## Actualizar
 

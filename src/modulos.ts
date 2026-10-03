@@ -4,6 +4,7 @@ import { ordenesRoutes } from "./routes/ordenes.js";
 import { bloquesCatalogoRoutes } from "./routes/bloques-catalogo.js";
 import { bloquesProduccionRoutes } from "./routes/bloques-produccion.js";
 import { bloquesMantenimientoRoutes } from "./routes/bloques-mantenimiento.js";
+import { almacenRoutes } from "./routes/almacen.js";
 import { customersRoutes } from "./routes/customers.js";
 import { contactsRoutes } from "./routes/contacts.js";
 import { catalogItemsRoutes } from "./routes/catalog-items.js";
@@ -45,6 +46,7 @@ export const MODULOS = {
       bloquesCatalogoRoutes,
       bloquesProduccionRoutes,
       bloquesMantenimientoRoutes,
+      almacenRoutes,
     ],
   },
   servicio: {

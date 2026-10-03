@@ -9,6 +9,7 @@ import Recetas from "./pantallas/Recetas";
 import Receta from "./pantallas/Receta";
 import Mantenimiento from "./pantallas/Mantenimiento";
 import Ajustes from "./pantallas/Ajustes";
+import Almacen from "./pantallas/Almacen";
 import Catalogo from "./pantallas/Catalogo";
 import Cuentas from "./pantallas/Cuentas";
 import Telemetria from "./comp/Telemetria";
@@ -81,6 +82,7 @@ export default function App() {
           <NavLink to="/planta" className={({ isActive }) => (isActive ? "activo" : "")}>Planta</NavLink>
           <NavLink to="/recetas" className={({ isActive }) => (isActive ? "activo" : "")}>Recetas</NavLink>
           <NavLink to="/mantenimiento" className={({ isActive }) => (isActive ? "activo" : "")}>Mantenimiento</NavLink>
+          <NavLink to="/almacen" className={({ isActive }) => (isActive ? "activo" : "")}>Almacén</NavLink>
           <NavLink to="/catalogo" className={({ isActive }) => (isActive ? "activo" : "")}>Catálogo</NavLink>
           <NavLink to="/ajustes" className={({ isActive }) => (isActive ? "activo" : "")}>Ajustes</NavLink>
           </> : null}
@@ -102,6 +104,7 @@ export default function App() {
         <Route path="/recetas" element={<Recetas />} />
         <Route path="/recetas/:id" element={<Receta />} />
         <Route path="/mantenimiento" element={<Mantenimiento />} />
+        <Route path="/almacen/*" element={<Almacen />} />
         <Route path="/catalogo" element={<Catalogo />} />
         <Route path="/ajustes" element={<Ajustes />} />
         </> : null}
