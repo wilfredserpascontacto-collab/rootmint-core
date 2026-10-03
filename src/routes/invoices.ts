@@ -11,6 +11,8 @@ import {
   invoices,
   quoteLines,
   quotes,
+  salesOrderLines,
+  salesOrders,
 } from "../db/schema.js";
 import { quoteTotals } from "../lib/quote-math.js";
 import { logActivity } from "../lib/activity-log.js";
@@ -18,6 +20,7 @@ import { nextCorrelativo } from "../lib/counters.js";
 import { getUserId } from "../lib/request-context.js";
 import { existenciaDe, moverInventario } from "./inventario.js";
 import { cobradoPorFactura } from "./pagos.js";
+import { facturadoPorRenglon, reservadoPorTipo } from "../lib/reservas.js";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -32,6 +35,7 @@ const NOMBRE_TIPO = {
 const lineaSchema = z.object({
   catalogItemId: z.string().uuid().optional(),
   quoteLineId: z.string().uuid().optional(),
+  salesOrderLineId: z.string().uuid().optional(),
   description: z.string().min(1).optional(),
   unitPriceCents: z.number().int().nonnegative().optional(),
   quantity: z.number().int().positive("La cantidad tiene que ser mayor que cero."),
@@ -41,6 +45,7 @@ const crearSchema = z.object({
   kind: z.enum(["ccf", "final"]).optional(),
   customerId: z.string().uuid().optional(),
   quoteId: z.string().uuid().optional(),
+  salesOrderId: z.string().uuid().optional(),
   issueDate: z.string().datetime().optional(),
   taxRatePercent: z.number().min(0).max(100).optional(),
   notes: z.string().optional(),
@@ -99,6 +104,7 @@ async function resolverLineas(
       invoiceId: "",
       catalogItemId: l.catalogItemId ?? null,
       quoteLineId: l.quoteLineId ?? null,
+      salesOrderLineId: l.salesOrderLineId ?? null,
       description,
       quantity: l.quantity,
       unitPriceCents,
@@ -216,6 +222,15 @@ async function descontarDelPatio(
       avisos.push(
         `De «${nombre}» había ${antes} en el patio y se facturaron ${cantidad}: la existencia quedó en ${antes - cantidad}. Casi siempre significa que faltó registrar producción, no que falten bloques.`,
       );
+    } else {
+      // Habia bloques, pero quiza estaban prometidos a otro pedido.
+      const apartado = (await reservadoPorTipo(tx)).get(blockTypeId);
+      if (apartado && antes - cantidad < apartado.cantidad) {
+        const falta = apartado.cantidad - (antes - cantidad);
+        avisos.push(
+          `Esta venta se llevó bloques de «${nombre}» que estaban apartados para el pedido N° ${apartado.pedidos.join(", N° ")}: ahora le faltan ${falta}. Si no es lo que querías, anulá la factura o producí más.`,
+        );
+      }
     }
   }
   return avisos;
@@ -273,9 +288,9 @@ export async function invoicesRoutes(app: FastifyInstance) {
   app.post("/invoices", async (req, reply) => {
     const body = crearSchema.parse(req.body);
 
-    if (!body.quoteId && !body.customerId) {
+    if (!body.quoteId && !body.customerId && !body.salesOrderId) {
       return reply.code(400).send({
-        error: "Una factura necesita un cliente, o una cotización de la que salir.",
+        error: "Una factura necesita un cliente, o una cotización o un pedido de los que salir.",
       });
     }
 
@@ -283,9 +298,24 @@ export async function invoicesRoutes(app: FastifyInstance) {
       const avisos: string[] = [];
 
       // --- De donde sale ---------------------------------------------------
+      let pedido: typeof salesOrders.$inferSelect | undefined;
+      if (body.salesOrderId) {
+        [pedido] = await tx.select().from(salesOrders).where(eq(salesOrders.id, body.salesOrderId));
+        if (!pedido) {
+          throw Object.assign(new Error("Ese pedido no existe."), { statusCode: 404 });
+        }
+        if (pedido.status === "cancelado") {
+          throw Object.assign(
+            new Error(`El pedido N° ${pedido.number} está cancelado: no se le puede facturar.`),
+            { statusCode: 409 },
+          );
+        }
+      }
+      const quoteIdEfectivo = body.quoteId ?? pedido?.quoteId ?? undefined;
+
       let cotizacion: typeof quotes.$inferSelect | undefined;
-      if (body.quoteId) {
-        [cotizacion] = await tx.select().from(quotes).where(eq(quotes.id, body.quoteId));
+      if (quoteIdEfectivo) {
+        [cotizacion] = await tx.select().from(quotes).where(eq(quotes.id, quoteIdEfectivo));
         if (!cotizacion) {
           throw Object.assign(new Error("Esa cotización no existe."), { statusCode: 404 });
         }
@@ -294,7 +324,7 @@ export async function invoicesRoutes(app: FastifyInstance) {
         }
       }
 
-      const customerId = body.customerId ?? cotizacion?.customerId;
+      const customerId = pedido?.customerId ?? body.customerId ?? cotizacion?.customerId;
       if (!customerId) {
         throw Object.assign(new Error("Falta el cliente."), { statusCode: 400 });
       }
@@ -319,6 +349,29 @@ export async function invoicesRoutes(app: FastifyInstance) {
 
       // --- Las lineas ------------------------------------------------------
       let entrada = body.lines;
+      if ((!entrada || entrada.length === 0) && pedido) {
+        // Sin lineas explicitas se factura lo que le falte al pedido.
+        const filasPedido = await tx
+          .select()
+          .from(salesOrderLines)
+          .where(and(eq(salesOrderLines.orderId, pedido.id), isNull(salesOrderLines.deletedAt)))
+          .orderBy(salesOrderLines.displayOrder);
+        const hecho = await facturadoPorRenglon(tx, filasPedido);
+        const conSaldo = filasPedido
+          .map((f) => ({ f, pendiente: f.quantity - (hecho.get(f.id) ?? 0) }))
+          .filter((x) => x.pendiente > 0);
+        if (conSaldo.length === 0) {
+          throw Object.assign(new Error("Este pedido ya está facturado por completo."), { statusCode: 409 });
+        }
+        entrada = conSaldo.map(({ f, pendiente }) => ({
+          salesOrderLineId: f.id,
+          quoteLineId: f.quoteLineId ?? undefined,
+          catalogItemId: f.catalogItemId ?? undefined,
+          description: f.description,
+          unitPriceCents: f.unitPriceCents,
+          quantity: pendiente,
+        }));
+      }
       if (!entrada || entrada.length === 0) {
         if (!cotizacion) {
           throw Object.assign(new Error("Una factura suelta necesita al menos una línea."), {
@@ -342,8 +395,34 @@ export async function invoicesRoutes(app: FastifyInstance) {
         }));
       }
 
+      // Un renglon de pedido solo vale dentro de su pedido.
+      if (entrada.some((l) => l.salesOrderLineId) && !pedido) {
+        throw Object.assign(new Error("Un renglón de pedido necesita decir de qué pedido es."), { statusCode: 400 });
+      }
       const { renglones } = await resolverLineas(tx, entrada);
       await completarProducto(tx, renglones);
+
+      // --- Avisar si se pasa de lo pedido ----------------------------------
+      if (pedido) {
+        const filasPedido = await tx
+          .select()
+          .from(salesOrderLines)
+          .where(and(eq(salesOrderLines.orderId, pedido.id), isNull(salesOrderLines.deletedAt)));
+        const porId = new Map(filasPedido.map((f) => [f.id, f]));
+        const hecho = await facturadoPorRenglon(tx, filasPedido);
+        for (const r of renglones) {
+          if (!r.salesOrderLineId) continue;
+          const f = porId.get(r.salesOrderLineId);
+          if (!f) {
+            throw Object.assign(new Error("Uno de los renglones no es de ese pedido."), { statusCode: 400 });
+          }
+          if (!r.quoteLineId && f.quoteLineId) r.quoteLineId = f.quoteLineId;
+          const falta = f.quantity - (hecho.get(f.id) ?? 0);
+          if (r.quantity > falta) {
+            avisos.push(`De «${f.description}» quedaban ${Math.max(0, falta)} por facturar del pedido y estás facturando ${r.quantity}.`);
+          }
+        }
+      }
 
       // --- Avisar si se pasa de lo cotizado --------------------------------
       // Avisar, no impedir: a veces se entrega mas de lo que decia el papel, y
@@ -388,6 +467,7 @@ export async function invoicesRoutes(app: FastifyInstance) {
           number,
           customerId,
           quoteId: cotizacion?.id ?? null,
+          salesOrderId: pedido?.id ?? null,
           issueDate: body.issueDate ? new Date(body.issueDate) : new Date(),
           taxRateMilli: Math.round(tasa * 1000),
           notes: body.notes ?? null,

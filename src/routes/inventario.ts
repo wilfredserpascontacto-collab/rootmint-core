@@ -7,6 +7,7 @@ import { batches, blockTypes } from "../db/schema-bloques.js";
 import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { pendientePorFacturar } from "./invoices.js";
+import { reservadoPorTipo } from "../lib/reservas.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -74,6 +75,7 @@ export async function inventarioRoutes(app: FastifyInstance) {
   app.get("/inventario", async () => {
     const tipos = await db.select().from(blockTypes).where(eq(blockTypes.active, true));
     const stock = await existencias(db);
+    const apartado = await reservadoPorTipo(db);
     const productos = await db
       .select()
       .from(catalogItems)
@@ -105,6 +107,10 @@ export async function inventarioRoutes(app: FastifyInstance) {
         code: t.code,
         name: t.name,
         existencia: stock.get(t.id) ?? 0,
+        // Apartado para pedidos abiertos, y lo que queda libre para vender.
+        reservado: apartado.get(t.id)?.cantidad ?? 0,
+        pedidosConReserva: apartado.get(t.id)?.pedidos ?? [],
+        disponible: (stock.get(t.id) ?? 0) - (apartado.get(t.id)?.cantidad ?? 0),
         lotes: Number(l?.cuantos) || 0,
         ultimoLote: l?.ultimo ?? null,
         // Que producto del catalogo corresponde a este bloque, si alguno.
@@ -191,6 +197,9 @@ export async function inventarioRoutes(app: FastifyInstance) {
       .where(and(eq(quoteLines.quoteId, id), isNull(quoteLines.deletedAt)));
 
     const stock = await existencias(db);
+    // Lo apartado para OTROS pedidos no esta libre para esta cotizacion; lo
+    // apartado para su propio pedido si.
+    const apartadoAjeno = await reservadoPorTipo(db, { exceptoCotizacion: id });
     const productos = await db.select().from(catalogItems);
     const tipos = await db.select().from(blockTypes);
 
@@ -221,8 +230,10 @@ export async function inventarioRoutes(app: FastifyInstance) {
         };
       }
 
-      const hay = stock.get(tipo.id) ?? 0;
+      const ajeno = apartadoAjeno.get(tipo.id)?.cantidad ?? 0;
+      const hay = Math.max(0, (stock.get(tipo.id) ?? 0) - ajeno);
       return {
+        apartadoParaOtros: ajeno,
         quoteLineId: r.id,
         description: r.description,
         pedido: r.quantity,
@@ -248,6 +259,10 @@ export async function inventarioRoutes(app: FastifyInstance) {
       for (const l of producibles) {
         if (l.hayQueProducir === 0) {
           avisos.push(`De «${l.description}» ya hay ${l.enExistencia} en el patio: no hace falta producir.`);
+        } else if ((l as { apartadoParaOtros?: number }).apartadoParaOtros && (l.enExistencia ?? 0) === 0) {
+          avisos.push(
+            `De «${l.description}» hay bloques en el patio, pero están apartados para otros pedidos: faltan ${l.hayQueProducir} por producir.`,
+          );
         } else if ((l.enExistencia ?? 0) > 0) {
           avisos.push(
             `De «${l.description}» hay ${l.enExistencia} en el patio, así que sólo faltan ${l.hayQueProducir} de los ${l.pedido} pedidos.`,

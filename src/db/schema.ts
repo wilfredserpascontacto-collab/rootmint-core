@@ -349,6 +349,61 @@ export const inventoryMoves = pgTable("inventory_moves", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- Pedidos y reservas -----------------------------------------------------
+
+export const salesOrderStatusEnum = pgEnum("sales_order_status", ["abierto", "cancelado"]);
+
+/**
+ * El pedido: lo que un cliente nos compro y falta entregar.
+ *
+ * Una cotizacion es una oferta; un pedido es un compromiso. Por eso es un
+ * documento aparte: tiene cantidades pedidas, lo ya facturado y lo apartado
+ * del patio para el. Nace de una cotizacion o de la nada (llega alguien y
+ * compra doscientos).
+ *
+ * Nada de esto se guarda como saldo. Lo facturado sale de las facturas
+ * emitidas que apuntan al renglon, y la reserva vigente es lo apartado menos lo
+ * ya facturado: anular una factura devuelve la reserva sola.
+ */
+export const salesOrders = pgTable("sales_orders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: integer("number").notNull().unique(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .references(() => customers.id),
+  /** Congelado: el pedido de marzo tiene que decir para quien fue aunque se renombre. */
+  customerName: text("customer_name").notNull(),
+  quoteId: uuid("quote_id").references(() => quotes.id),
+  status: salesOrderStatusEnum("status").notNull().default("abierto"),
+  neededBy: timestamp("needed_by", { withTimezone: true }),
+  deliveryAddress: text("delivery_address"),
+  notes: text("notes"),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  cancelledBy: uuid("cancelled_by").references(() => users.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  ...timestamps,
+});
+
+export const salesOrderLines = pgTable("sales_order_lines", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => salesOrders.id),
+  catalogItemId: uuid("catalog_item_id").references(() => catalogItems.id),
+  quoteLineId: uuid("quote_line_id").references(() => quoteLines.id),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPriceCents: integer("unit_price_cents").notNull(),
+  /**
+   * Cuanto del patio se aparto para este renglon. Es una promesa hecha en un
+   * momento; lo que sigue vigente se calcula (ver lib/reservas.ts).
+   */
+  reservedQuantity: integer("reserved_quantity").notNull().default(0),
+  displayOrder: integer("display_order").notNull().default(0),
+  ...timestamps,
+});
+
 // --- Cobro -----------------------------------------------------------------
 
 /**
@@ -378,6 +433,8 @@ export const invoices = pgTable("invoices", {
     .references(() => customers.id),
   /** De que cotizacion salio, si salio de alguna. */
   quoteId: uuid("quote_id").references(() => quotes.id),
+  /** De que pedido salio, si salio de alguno. */
+  salesOrderId: uuid("sales_order_id").references(() => salesOrders.id),
   issueDate: timestamp("issue_date", { withTimezone: true }).notNull(),
   status: invoiceStatusEnum("status").notNull().default("issued"),
   subtotalCents: integer("subtotal_cents").notNull().default(0),
@@ -416,6 +473,8 @@ export const invoiceLines = pgTable("invoice_lines", {
    * lo ya facturado, renglon por renglon.
    */
   quoteLineId: uuid("quote_line_id").references(() => quoteLines.id),
+  /** De que renglon de pedido sale, si sale de alguno. */
+  salesOrderLineId: uuid("sales_order_line_id").references(() => salesOrderLines.id),
   description: text("description").notNull(),
   quantity: integer("quantity").notNull(),
   unitPriceCents: integer("unit_price_cents").notNull(),
