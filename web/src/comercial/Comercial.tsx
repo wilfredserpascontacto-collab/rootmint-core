@@ -7,6 +7,7 @@ import { Instalaciones, FichaInstalacion } from "./Instalaciones";
 import { GarantiasQueVencen } from "./Garantias";
 import { CobrosFactura, EstadoCuentaCliente, PorCobrarPantalla } from "./Cobros";
 import { Pedidos, PedidoNuevo, FichaPedido, PedidoDeCotizacion } from "./Pedidos";
+import { Despachos, DespachoNuevo, FichaDespacho, Despachar } from "./Despachos";
 import "./comercial.css";
 
 function Customers() {
@@ -404,6 +405,10 @@ function FacturaNueva(){
  const [clienteId,setClienteId]=useState("");const [kind,setKind]=useState<""|"ccf"|"final">("");
  const [renglones,setRenglones]=useState<Renglon[]>([{description:"",quantity:1,precio:""}]);
  const [failure,setFailure]=useState("");const [busy,setBusy]=useState(false);
+ // Por defecto se lo lleva: en una bloquera el caso comun es que llegan, pagan
+ // y cargan. Destildarlo deja los bloques en el patio, apartados para este
+ // cliente, hasta que salga el camion y alguien firme el despacho.
+ const [seLoLleva,setSeLoLleva]=useState(true);
  const cliente=c.data?.find(x=>x.id===clienteId);
  // El tipo se propone según el NRC, como hace el servidor. Si quien factura
  // elige otro, el servidor avisa y lo deja pasar.
@@ -417,7 +422,7 @@ function FacturaNueva(){
   const lines=renglones.filter(r=>r.description.trim()&&r.quantity>0).map(r=>({catalogItemId:r.catalogItemId,description:r.description.trim(),quantity:r.quantity,unitPriceCents:cents(r.precio)}));
   if(!lines.length){setFailure("Agregá al menos un renglón con descripción, cantidad y precio.");return}
   setBusy(true);setFailure("");
-  try{const f=await api<Factura>("/invoices","POST",{customerId:clienteId,kind:tipoElegido||undefined,lines});navigate("/comercial/facturas/"+f.id,{state:{avisos:f.avisos}})}
+  try{const f=await api<Factura>("/invoices","POST",{customerId:clienteId,kind:tipoElegido||undefined,despacharAhora:seLoLleva,lines});navigate("/comercial/facturas/"+f.id,{state:{avisos:f.avisos}})}
   catch(err){setFailure((err as Error).message);setBusy(false)}
  }
  return <form onSubmit={emitir}><Link className="c-back" to="/comercial/facturas">← Facturas</Link>
@@ -428,6 +433,10 @@ function FacturaNueva(){
   <Field label="Tipo de documento"><select value={tipoElegido} onChange={e=>setKind(e.target.value as "ccf"|"final")} disabled={!clienteId}><option value="ccf">Crédito fiscal</option><option value="final">Consumidor final</option></select></Field>
  </div>
  {cliente&&<p className="c-ficha-nota">{sugerido==="ccf"?`${cliente.name} tiene NRC, así que le corresponde crédito fiscal para poder descontarse el IVA.`:`${cliente.name} no tiene NRC cargado, así que le corresponde consumidor final.`}</p>}
+ <label className="c-check"><input type="checkbox" checked={seLoLleva} onChange={e=>setSeLoLleva(e.target.checked)}/> <span>Se lo lleva ahora</span></label>
+ <p className="c-ficha-nota">{seLoLleva
+  ?"Los bloques salen del patio en este momento y queda su despacho."
+  :"Los bloques se quedan en el patio, apartados para este cliente, hasta que salga el camión. Cuando salga, se hace el despacho desde esta factura y ahí firma quien recibe."}</p>
  </section>
  <section className="c-card c-pad"><h3>Qué se le cobra</h3>
  {renglones.map((r,i)=><div key={i} className="c-line-editor"><div className="c-form-grid">
@@ -469,6 +478,7 @@ function FacturaDetail(){
   {factura.status==="issued"&&(anulando
    ?<span className="c-confirmar"><input aria-label="Motivo de la anulación" placeholder="¿Por qué se anula?" value={motivo} onChange={e=>setMotivo(e.target.value)}/><button disabled={busy||motivo.trim().length<3} onClick={anular}>Anular</button><button disabled={busy} onClick={()=>{setAnulando(false);setMotivo("")}}>No</button></span>
    :<button disabled={busy} onClick={()=>setAnulando(true)}>Anular</button>)}
+  {factura.status==="issued"&&<Despachar facturaId={factura.id}/>}
   <span>Una factura emitida no se corrige. Si está mal, se anula y se hace otra.</span></div>
  {factura.status==="annulled"&&<div className="c-error" role="alert"><strong>Anulada.</strong> {factura.annulReason} · El número {numeroFactura(factura.kind,factura.number)} no se reusa.</div>}
  {avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}
@@ -504,16 +514,17 @@ function Inventario(){
  const [failure,setFailure]=useState("");const [avisos,setAvisos]=useState<string[]>([]);
  const filas=inv.data??[];
  const sinEnlazar=filas.filter(f=>!f.catalogItemId);
- return <><Header title="Inventario" subtitle="Lo que hay en el patio, listo para entregar. Sale de sumar lo producido menos lo que salió."/>
+ return <><Header title="Inventario" subtitle="Lo que hay en el patio. «Por despachar» ya está vendido aunque se siga viendo: se lo lleva el camión, no se vuelve a vender."/>
  <ErrorBox message={failure||inv.error}/>
  {avisos.length>0&&<ul className="c-avisos" role="status">{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}
  {sinEnlazar.length>0&&<div className="c-aviso" role="status">Hay {sinEnlazar.length} {sinEnlazar.length===1?"tipo de bloque":"tipos de bloque"} que no {sinEnlazar.length===1?"corresponde":"corresponden"} a ningún producto del catálogo. Mientras no estén enlazados, una cotización no puede saber si lo que pide ya está fabricado. Se enlazan desde <Link to="/comercial/productos">Productos</Link>.</div>}
- <section className="c-card"><div className="c-scroll"><table><thead><tr><th>Tipo de bloque</th><th>Se vende como</th><th className="c-num">Lotes</th><th className="c-num">En el patio</th><th className="c-num">Apartado</th><th className="c-num">Disponible</th><th></th></tr></thead>
+ <section className="c-card"><div className="c-scroll"><table><thead><tr><th>Tipo de bloque</th><th>Se vende como</th><th className="c-num">Lotes</th><th className="c-num">En el patio</th><th className="c-num">Apartado</th><th className="c-num">Por despachar</th><th className="c-num">Disponible</th><th></th></tr></thead>
  <tbody>{filas.map(f=><tr key={f.blockTypeId}><td><strong>{f.name}</strong><small>{f.code}</small></td>
   <td>{f.catalogItemName??<span className="c-ficha-nota">sin enlazar</span>}</td>
   <td className="c-num">{f.lotes}{f.ultimoLote&&<small style={{display:"block"}}>último: {date(f.ultimoLote)}</small>}</td>
   <td className="c-num"><strong style={f.existencia<0?{color:"var(--peligro, #e5484d)"}:undefined}>{f.existencia.toLocaleString("es-SV")}</strong></td>
   <td className="c-num">{(f.reservado??0)>0?<>{(f.reservado??0).toLocaleString("es-SV")}<small style={{display:"block"}}>{(f.pedidosConReserva??[]).map(n=>"PED-"+String(n).padStart(5,"0")).join(", ")}</small></>:"—"}</td>
+  <td className="c-num">{(f.porDespachar??0)>0?<>{(f.porDespachar??0).toLocaleString("es-SV")}<small style={{display:"block"}}>facturados, esperando camión</small></>:"—"}</td>
   <td className="c-num"><strong style={(f.disponible??f.existencia)<0?{color:"var(--peligro, #e5484d)"}:undefined}>{(f.disponible??f.existencia).toLocaleString("es-SV")}</strong></td>
   <td style={{whiteSpace:"nowrap"}}>
    <button className="c-link" onClick={()=>setAbierto(abierto===f.blockTypeId?null:f.blockTypeId)}>{abierto===f.blockTypeId?"Cerrar":"De dónde sale"}</button>
@@ -576,6 +587,6 @@ function Dashboard(){
 }
 export default function Comercial({quien}:{quien?:ReactNode}){
  const p=useData<Profile>("/business-profile");const {tiene,marca,subtitulo,persona}=useModulos();const planta=tiene("bloques");const servicio=tiene("servicio");
- return <div id="commercial"><aside className="c-sidebar"><Link className="c-logo" to="/comercial"><span>▥</span> {marca.toUpperCase()}<small>ÁREA COMERCIAL</small></Link><div className="c-company"><span>{(p.data?.name??"M").slice(0,1).toUpperCase()}</span><div><strong>{p.data?.name??"Mi empresa"}</strong><small>Emite las cotizaciones</small></div></div><div className="c-nav-label">COMERCIAL</div><nav>{[["","◫","Resumen"],["clientes","◎","Clientes y prospectos"],["cotizaciones","▤","Cotizaciones"],["pedidos","▢","Pedidos"],["facturas","▣","Facturas"],["cobros","◔","Por cobrar"],...(planta?[["inventario","▧","Inventario"]]:[]),["productos","▦","Productos y servicios"]].map(([path,icon,label])=><NavLink key={path} to={"/comercial"+(path?"/"+path:"")} end={path===""}><span>{icon}</span>{label}</NavLink>)}</nav>{servicio&&<><div className="c-nav-label">SERVICIO</div><nav><NavLink to="/comercial/instalaciones"><span>⌂</span>Instalaciones</NavLink><NavLink to="/comercial/garantias"><span>◈</span>Garantías</NavLink></nav></>}<div className="c-nav-label">ADMINISTRACIÓN</div><nav><NavLink to="/comercial/empresa"><span>⚙</span>Mi empresa</NavLink>{planta?<Link to="/lotes"><span>↗</span>Abrir producción</Link>:persona?.role==="owner"&&<Link to="/cuentas"><span>☺</span>Cuentas</Link>}</nav><div className="c-sidebar-bottom"><span className="c-dot"/>Versión de desarrollo<small>Usar únicamente datos de prueba.</small></div></aside><div className="c-workspace"><div className="c-topbar"><span>{marca} <b>/</b> Área comercial</span><span className="c-environment">{/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"DESARROLLO LOCAL":"VERSIÓN DE PRUEBA"}</span>{quien}</div><main><Routes><Route index element={<Dashboard/>}/><Route path="clientes" element={<Customers/>}/><Route path="clientes/:id" element={<CustomerDetail/>}/><Route path="productos" element={<Catalog/>}/><Route path="cotizaciones" element={<Quotes/>}/><Route path="cotizaciones/nueva" element={<QuoteEditor/>}/><Route path="cotizaciones/:id/editar" element={<QuoteEditor/>}/><Route path="cotizaciones/:id" element={<QuoteDetail/>}/><Route path="facturas" element={<Facturas/>}/><Route path="facturas/nueva" element={<FacturaNueva/>}/><Route path="facturas/:id" element={<FacturaDetail/>}/><Route path="cobros" element={<PorCobrarPantalla/>}/><Route path="pedidos" element={<Pedidos/>}/><Route path="pedidos/nuevo" element={<PedidoNuevo/>}/><Route path="pedidos/:id" element={<FichaPedido/>}/>{planta&&<Route path="inventario" element={<Inventario/>}/>}{servicio&&<><Route path="instalaciones" element={<Instalaciones/>}/><Route path="instalaciones/:id" element={<FichaInstalacion/>}/><Route path="garantias" element={<GarantiasQueVencen/>}/></>}<Route path="empresa" element={<Settings onSaved={p.reload}/>}/><Route path="*" element={<Empty title="Página no encontrada"><Link to="/comercial">Volver al resumen</Link></Empty>}/></Routes></main><footer className="c-workspace-footer"><span>{marca.toUpperCase()}{subtitulo?" · "+subtitulo.toUpperCase():""}</span><span className="c-credito-proveedor">Tecnología de RootMint</span><span>USD · El Salvador</span></footer></div></div>
+ return <div id="commercial"><aside className="c-sidebar"><Link className="c-logo" to="/comercial"><span>▥</span> {marca.toUpperCase()}<small>ÁREA COMERCIAL</small></Link><div className="c-company"><span>{(p.data?.name??"M").slice(0,1).toUpperCase()}</span><div><strong>{p.data?.name??"Mi empresa"}</strong><small>Emite las cotizaciones</small></div></div><div className="c-nav-label">COMERCIAL</div><nav>{[["","◫","Resumen"],["clientes","◎","Clientes y prospectos"],["cotizaciones","▤","Cotizaciones"],["pedidos","▢","Pedidos"],["facturas","▣","Facturas"],...(planta?[["despachos","⇥","Despachos"]]:[]),["cobros","◔","Por cobrar"],...(planta?[["inventario","▧","Inventario"]]:[]),["productos","▦","Productos y servicios"]].map(([path,icon,label])=><NavLink key={path} to={"/comercial"+(path?"/"+path:"")} end={path===""}><span>{icon}</span>{label}</NavLink>)}</nav>{servicio&&<><div className="c-nav-label">SERVICIO</div><nav><NavLink to="/comercial/instalaciones"><span>⌂</span>Instalaciones</NavLink><NavLink to="/comercial/garantias"><span>◈</span>Garantías</NavLink></nav></>}<div className="c-nav-label">ADMINISTRACIÓN</div><nav><NavLink to="/comercial/empresa"><span>⚙</span>Mi empresa</NavLink>{planta?<Link to="/lotes"><span>↗</span>Abrir producción</Link>:persona?.role==="owner"&&<Link to="/cuentas"><span>☺</span>Cuentas</Link>}</nav><div className="c-sidebar-bottom"><span className="c-dot"/>Versión de desarrollo<small>Usar únicamente datos de prueba.</small></div></aside><div className="c-workspace"><div className="c-topbar"><span>{marca} <b>/</b> Área comercial</span><span className="c-environment">{/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"DESARROLLO LOCAL":"VERSIÓN DE PRUEBA"}</span>{quien}</div><main><Routes><Route index element={<Dashboard/>}/><Route path="clientes" element={<Customers/>}/><Route path="clientes/:id" element={<CustomerDetail/>}/><Route path="productos" element={<Catalog/>}/><Route path="cotizaciones" element={<Quotes/>}/><Route path="cotizaciones/nueva" element={<QuoteEditor/>}/><Route path="cotizaciones/:id/editar" element={<QuoteEditor/>}/><Route path="cotizaciones/:id" element={<QuoteDetail/>}/><Route path="facturas" element={<Facturas/>}/><Route path="facturas/nueva" element={<FacturaNueva/>}/><Route path="facturas/:id" element={<FacturaDetail/>}/><Route path="cobros" element={<PorCobrarPantalla/>}/><Route path="pedidos" element={<Pedidos/>}/><Route path="pedidos/nuevo" element={<PedidoNuevo/>}/><Route path="pedidos/:id" element={<FichaPedido/>}/><Route path="despachos" element={<Despachos/>}/><Route path="despachos/nuevo" element={<DespachoNuevo/>}/><Route path="despachos/:id" element={<FichaDespacho/>}/>{planta&&<Route path="inventario" element={<Inventario/>}/>}{servicio&&<><Route path="instalaciones" element={<Instalaciones/>}/><Route path="instalaciones/:id" element={<FichaInstalacion/>}/><Route path="garantias" element={<GarantiasQueVencen/>}/></>}<Route path="empresa" element={<Settings onSaved={p.reload}/>}/><Route path="*" element={<Empty title="Página no encontrada"><Link to="/comercial">Volver al resumen</Link></Empty>}/></Routes></main><footer className="c-workspace-footer"><span>{marca.toUpperCase()}{subtitulo?" · "+subtitulo.toUpperCase():""}</span><span className="c-credito-proveedor">Tecnología de RootMint</span><span>USD · El Salvador</span></footer></div></div>
 }
 

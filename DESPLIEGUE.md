@@ -87,6 +87,12 @@ para Fénix cambiando dos variables (abajo).
    ```
 
    Los precios de los materiales se quedan (hay que ponerlos de todos modos).
+7. **Despachos** (solo con `bloques`): la factura trae marcado «Se lo lleva
+   ahora», que es la venta de mostrador y deja el patio como siempre. Para una
+   obra que se entrega después, se destilda: los bloques quedan en el patio a
+   nombre del cliente —el inventario los muestra en «Por despachar»— y salen
+   cuando se hace el despacho desde la factura, que es donde firma quien
+   recibe. Nada que configurar; es bueno saberlo antes de la primera venta.
 
 ## Actualizar
 

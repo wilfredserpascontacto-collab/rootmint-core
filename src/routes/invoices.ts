@@ -6,6 +6,8 @@ import {
   businessProfile,
   catalogItems,
   customers,
+  deliveries,
+  deliveryPhotos,
   inventoryMoves,
   invoiceLines,
   invoices,
@@ -21,6 +23,7 @@ import { getUserId } from "../lib/request-context.js";
 import { existenciaDe, moverInventario } from "./inventario.js";
 import { cobradoPorFactura } from "./pagos.js";
 import { facturadoPorRenglon, reservadoPorTipo } from "../lib/reservas.js";
+import { crearDespacho, devolverAlPatio } from "./despachos.js";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -50,6 +53,20 @@ const crearSchema = z.object({
   taxRatePercent: z.number().min(0).max(100).optional(),
   notes: z.string().optional(),
   lines: z.array(lineaSchema).optional(),
+  /**
+   * Si se lo lleva en el acto.
+   *
+   * Por defecto SI, que es lo que hacia el sistema antes de que existiera el
+   * despacho: facturar sacaba el bloque del patio. Asi, quien llega, paga y
+   * carga sigue haciendo una sola cosa, y lo que llamaba a esta ruta sin saber
+   * de despachos se sigue comportando igual.
+   *
+   * En falso, el bloque se queda en el patio —apartado, no libre— hasta que
+   * salga el camion y alguien firme el despacho.
+   */
+  despacharAhora: z.boolean().optional(),
+  /** Quien recibe, cuando se entrega en el acto. Por defecto, el propio cliente. */
+  recibe: z.string().max(200).optional(),
 });
 
 const anularSchema = z.object({
@@ -176,66 +193,6 @@ async function completarProducto(
   }
 }
 
-/**
- * Lo facturado sale del patio, en el mismo acto que la factura.
- *
- * Solo salen los renglones cuyo producto esta enlazado a un tipo de bloque:
- * la mano de obra o el flete no tienen patio. Si no alcanza la existencia no se
- * impide facturar —puede que falte registrar produccion, no que falten
- * bloques— pero se avisa, porque un negativo que nadie ve no se corrige.
- */
-async function descontarDelPatio(
-  tx: Tx,
-  renglones: (typeof invoiceLines.$inferInsert)[],
-  factura: { id: string; number: number; kind: "ccf" | "final" },
-  userId: string | null,
-): Promise<string[]> {
-  const ids = renglones.map((r) => r.catalogItemId).filter((x): x is string => Boolean(x));
-  if (ids.length === 0) return [];
-  const productos = await tx.select().from(catalogItems).where(inArray(catalogItems.id, ids));
-  const tipoDe = new Map(productos.map((p) => [p.id, p]));
-
-  const porTipo = new Map<string, { cantidad: number; nombre: string }>();
-  for (const r of renglones) {
-    const producto = r.catalogItemId ? tipoDe.get(r.catalogItemId) : undefined;
-    if (!producto?.blockTypeId) continue;
-    const previo = porTipo.get(producto.blockTypeId);
-    porTipo.set(producto.blockTypeId, {
-      cantidad: (previo?.cantidad ?? 0) + r.quantity,
-      nombre: producto.name,
-    });
-  }
-
-  const avisos: string[] = [];
-  for (const [blockTypeId, { cantidad, nombre }] of porTipo) {
-    const antes = await existenciaDe(tx, blockTypeId);
-    await moverInventario(tx, {
-      blockTypeId,
-      quantity: -cantidad,
-      reason: "venta",
-      refType: "invoice",
-      refId: factura.id,
-      note: `${NOMBRE_TIPO[factura.kind]} N° ${factura.number}`,
-      userId,
-    });
-    if (antes - cantidad < 0) {
-      avisos.push(
-        `De «${nombre}» había ${antes} en el patio y se facturaron ${cantidad}: la existencia quedó en ${antes - cantidad}. Casi siempre significa que faltó registrar producción, no que falten bloques.`,
-      );
-    } else {
-      // Habia bloques, pero quiza estaban prometidos a otro pedido.
-      const apartado = (await reservadoPorTipo(tx)).get(blockTypeId);
-      if (apartado && antes - cantidad < apartado.cantidad) {
-        const falta = apartado.cantidad - (antes - cantidad);
-        avisos.push(
-          `Esta venta se llevó bloques de «${nombre}» que estaban apartados para el pedido N° ${apartado.pedidos.join(", N° ")}: ahora le faltan ${falta}. Si no es lo que querías, anulá la factura o producí más.`,
-        );
-      }
-    }
-  }
-  return avisos;
-}
-
 export async function invoicesRoutes(app: FastifyInstance) {
   app.get("/invoices", async (req) => {
     const { customerId, quoteId } = req.query as { customerId?: string; quoteId?: string };
@@ -293,6 +250,11 @@ export async function invoicesRoutes(app: FastifyInstance) {
         error: "Una factura necesita un cliente, o una cotización o un pedido de los que salir.",
       });
     }
+
+    // Se lo lleva en el acto salvo que digan lo contrario: es lo que hacia el
+    // sistema antes del despacho, y es el caso comun en una bloquera.
+    const seLoLleva = body.despacharAhora !== false;
+    let despachoNumero: number | null = null;
 
     const resultado = await db.transaction(async (tx) => {
       const avisos: string[] = [];
@@ -482,18 +444,48 @@ export async function invoicesRoutes(app: FastifyInstance) {
 
       if (!factura) throw new Error("No se pudo crear la factura.");
 
-      await tx
+      const renglonesConLinea = await tx
         .insert(invoiceLines)
-        .values(renglones.map((r) => ({ ...r, invoiceId: factura.id })));
+        .values(renglones.map((r) => ({ ...r, invoiceId: factura.id })))
+        .returning();
 
-      avisos.push(
-        ...(await descontarDelPatio(
-          tx,
-          renglones,
-          { id: factura.id, number: factura.number, kind: factura.kind },
-          getUserId(req),
-        )),
-      );
+      /**
+       * El patio ya NO se toca aca.
+       *
+       * Antes la factura descontaba el patio en el mismo acto de emitirse, y
+       * eso hacia mentir al patio desde el momento en que se factura hasta que
+       * sale el camion: dias en los que el sistema decia que no habia bloques
+       * que estaban ahi, apilados, a la vista. Ahora el bloque sale cuando sale
+       * —con el despacho que alguien firma— y mientras tanto figura como
+       * «facturado sin despachar», que es la verdad.
+       *
+       * El que se lo lleva en el momento no nota el cambio: su despacho se crea
+       * aqui mismo, en la misma transaccion.
+       */
+      if (seLoLleva) {
+        const entrega = await crearDespacho(tx, {
+          customerId,
+          customerName: cliente?.name ?? "Cliente",
+          invoiceId: factura.id,
+          salesOrderId: pedido?.id ?? null,
+          receivedByName: (body.recibe ?? "").trim() || cliente?.name || "Cliente",
+          notes: `Entregado en el acto, con ${NOMBRE_TIPO[factura.kind].toLowerCase()} N° ${factura.number}.`,
+          referencia: `${factura.kind === "ccf" ? "CCF" : "FCF"}-${String(factura.number).padStart(5, "0")}`,
+          lines: renglonesConLinea.map((r) => ({
+            invoiceLineId: r.id,
+            catalogItemId: r.catalogItemId ?? undefined,
+            description: r.description,
+            quantity: r.quantity,
+          })),
+          userId: getUserId(req),
+        });
+        avisos.push(...entrega.avisos);
+        despachoNumero = entrega.despacho.number;
+      } else {
+        avisos.push(
+          `Los bloques quedan en el patio a nombre de este cliente hasta que salga el camión. Cuando salga, hacé el despacho desde la factura N° ${factura.number}.`,
+        );
+      }
 
       await logActivity(tx, {
         userId: getUserId(req),
@@ -506,7 +498,11 @@ export async function invoicesRoutes(app: FastifyInstance) {
       return { factura, avisos };
     });
 
-    return reply.code(201).send({ ...resultado.factura, avisos: resultado.avisos });
+    return reply.code(201).send({
+      ...resultado.factura,
+      despachoNumero,
+      avisos: resultado.avisos,
+    });
   });
 
   /**
@@ -540,6 +536,36 @@ export async function invoicesRoutes(app: FastifyInstance) {
         );
       }
 
+      /**
+       * Los despachos de esta factura.
+       *
+       * Uno que alguien firmo o del que hay fotos NO se borra de rebote: eso
+       * paso de verdad, hay un papel con una firma, y anular la factura no
+       * deshace que el camion llego. Hay que anularlo a mano, con su motivo.
+       * El que se creo solo —la venta de mostrador, sin firma ni fotos— se va
+       * con la factura, que es lo que la persona espera al anular un error.
+       */
+      const entregas = await tx
+        .select()
+        .from(deliveries)
+        .where(and(eq(deliveries.invoiceId, id), eq(deliveries.status, "entregado")));
+      const conPrueba: number[] = [];
+      for (const e of entregas) {
+        const fotos = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(deliveryPhotos)
+          .where(eq(deliveryPhotos.deliveryId, e.id));
+        if (e.signature || Number(fotos[0]?.n ?? 0) > 0) conPrueba.push(e.number);
+      }
+      if (conPrueba.length) {
+        throw Object.assign(
+          new Error(
+            `El despacho N° ${conPrueba.join(", N° ")} de esta factura está firmado o tiene fotos: alguien recibió esos bloques. Anulá primero el despacho, con su motivo, y después la factura.`,
+          ),
+          { statusCode: 409 },
+        );
+      }
+
       const [despues] = await tx
         .update(invoices)
         .set({
@@ -552,7 +578,23 @@ export async function invoicesRoutes(app: FastifyInstance) {
         .where(eq(invoices.id, id))
         .returning();
 
-      // Los bloques que salieron con la factura vuelven al patio. Se devuelve
+      // Los despachos sin firma ni fotos se van con ella, y sus bloques vuelven.
+      for (const e of entregas) {
+        await tx
+          .update(deliveries)
+          .set({
+            status: "anulado",
+            annulledAt: new Date(),
+            annulReason: `Se anuló la factura N° ${antes.number}: ${body.reason.trim()}`,
+            annulledBy: getUserId(req),
+            updatedAt: new Date(),
+          })
+          .where(eq(deliveries.id, e.id));
+        devueltos += await devolverAlPatio(tx, e.id, e.number, getUserId(req));
+      }
+
+      // Facturas viejas, de antes del despacho: descontaban el patio ellas
+      // mismas, asi que ellas mismas lo devuelven. Se devuelve
       // lo que de verdad salio (leyendo los movimientos), no lo que hoy diga
       // el catalogo: si el producto se enlazo o desenlazo despues, no importa.
       const salidas = await tx

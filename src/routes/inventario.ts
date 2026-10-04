@@ -8,6 +8,7 @@ import { logActivity } from "../lib/activity-log.js";
 import { getUserId } from "../lib/request-context.js";
 import { pendientePorFacturar } from "./invoices.js";
 import { reservadoPorTipo } from "../lib/reservas.js";
+import { porDespacharPorTipo } from "./despachos.js";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -76,6 +77,9 @@ export async function inventarioRoutes(app: FastifyInstance) {
     const tipos = await db.select().from(blockTypes).where(eq(blockTypes.active, true));
     const stock = await existencias(db);
     const apartado = await reservadoPorTipo(db);
+    // Vendido y todavia en el patio: facturado y sin despachar. Se ve, pero ya
+    // tiene dueno. Sin este numero el mismo bloque se vende dos veces.
+    const porSalir = await porDespacharPorTipo(db);
     const productos = await db
       .select()
       .from(catalogItems)
@@ -110,7 +114,13 @@ export async function inventarioRoutes(app: FastifyInstance) {
         // Apartado para pedidos abiertos, y lo que queda libre para vender.
         reservado: apartado.get(t.id)?.cantidad ?? 0,
         pedidosConReserva: apartado.get(t.id)?.pedidos ?? [],
-        disponible: (stock.get(t.id) ?? 0) - (apartado.get(t.id)?.cantidad ?? 0),
+        // Facturado y esperando el camion: esta en el patio pero no se vende.
+        porDespachar: porSalir.get(t.id)?.cantidad ?? 0,
+        facturasPorDespachar: porSalir.get(t.id)?.facturas ?? [],
+        disponible:
+          (stock.get(t.id) ?? 0) -
+          (apartado.get(t.id)?.cantidad ?? 0) -
+          (porSalir.get(t.id)?.cantidad ?? 0),
         lotes: Number(l?.cuantos) || 0,
         ultimoLote: l?.ultimo ?? null,
         // Que producto del catalogo corresponde a este bloque, si alguno.
@@ -200,6 +210,15 @@ export async function inventarioRoutes(app: FastifyInstance) {
     // Lo apartado para OTROS pedidos no esta libre para esta cotizacion; lo
     // apartado para su propio pedido si.
     const apartadoAjeno = await reservadoPorTipo(db, { exceptoCotizacion: id });
+    /**
+     * Y lo facturado que todavia no sale tampoco esta libre.
+     *
+     * Esta en el patio y se ve, pero ya tiene dueno. Sin descontarlo, una
+     * cotizacion nueva de 900 contra un patio de 1.000 enteramente vendidos
+     * contestaba «no hay que producir nada»: prometia bloques que estaban
+     * esperando el camion de otro cliente.
+     */
+    const porSalir = await porDespacharPorTipo(db);
     const productos = await db.select().from(catalogItems);
     const tipos = await db.select().from(blockTypes);
 
@@ -231,9 +250,11 @@ export async function inventarioRoutes(app: FastifyInstance) {
       }
 
       const ajeno = apartadoAjeno.get(tipo.id)?.cantidad ?? 0;
-      const hay = Math.max(0, (stock.get(tipo.id) ?? 0) - ajeno);
+      const vendidoSinSalir = porSalir.get(tipo.id)?.cantidad ?? 0;
+      const hay = Math.max(0, (stock.get(tipo.id) ?? 0) - ajeno - vendidoSinSalir);
       return {
         apartadoParaOtros: ajeno,
+        facturadoSinSalir: vendidoSinSalir,
         quoteLineId: r.id,
         description: r.description,
         pedido: r.quantity,

@@ -8,6 +8,7 @@ import {
   timestamp,
   jsonb,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 
 // --- Enums -------------------------------------------------------------
@@ -550,3 +551,120 @@ export const businessProfile = pgTable("business_profile", {
   terms: text("terms").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// --- Despacho ---------------------------------------------------------------
+
+export const deliveryStatusEnum = pgEnum("delivery_status", ["entregado", "anulado"]);
+
+/**
+ * El despacho: el papel que firma quien recibe los bloques.
+ *
+ * Existe porque facturar y entregar son dos actos distintos, y confundirlos
+ * hace mentir al patio. Se factura el lunes y el camion sale el miercoles, o
+ * sale en tres viajes. Mientras el sistema descontaba el patio al facturar, en
+ * esos dias el patio decia que no habia bloques que estaban ahi, a la vista de
+ * todos.
+ *
+ * Por eso el movimiento del patio cuelga de ACA y no de la factura: el bloque
+ * sale cuando sale, no cuando se cobra. Una factura que se entrega en el acto
+ * —el que llega, paga y carga— crea su despacho en el mismo momento, para que
+ * el caso comun siga siendo un solo toque.
+ *
+ * Quien recibe firma con el dedo y se le toman fotos de la carga. Eso no es
+ * adorno: cuando el cliente dice que llegaron 180 y no 200, o que llegaron
+ * quebrados, lo unico que queda en pie es la firma y la foto del camion
+ * cargado.
+ */
+export const deliveries = pgTable(
+  "deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Correlativo propio. No comparte serie con las facturas: no es un documento fiscal. */
+    number: integer("number").notNull().unique(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id),
+    /** Congelado, como en todos lados: el despacho de marzo dice a quien se le entrego. */
+    customerName: text("customer_name").notNull(),
+    /** De donde sale, si sale de algo. Los dos pueden ser nulos: se entrega y punto. */
+    invoiceId: uuid("invoice_id").references(() => invoices.id),
+    salesOrderId: uuid("sales_order_id").references(() => salesOrders.id),
+    status: deliveryStatusEnum("status").notNull().default("entregado"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Quien recibio, de su puno. Un despacho sin nombre no sirve para reclamar nada. */
+    receivedByName: text("received_by_name").notNull(),
+    /** Su documento, si lo dio. Opcional: en una obra casi nunca lo dan. */
+    receivedByDocument: text("received_by_document"),
+    address: text("address"),
+    driverName: text("driver_name"),
+    vehiclePlate: text("vehicle_plate"),
+    notes: text("notes"),
+    /**
+     * La firma, dibujada con el dedo, como dataURL.
+     *
+     * Va en la base y no en un archivo aparte a proposito: un volumen de disco
+     * en el servidor se pierde en una migracion y nadie se entera hasta que
+     * hace falta la firma. Lo que esta en la base viaja en el respaldo.
+     */
+    signature: text("signature"),
+    annulledAt: timestamp("annulled_at", { withTimezone: true }),
+    annulReason: text("annul_reason"),
+    annulledBy: uuid("annulled_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    ...timestamps,
+  },
+  (t) => ({
+    porCliente: index("deliveries_customer_idx").on(t.customerId),
+    porFactura: index("deliveries_invoice_idx").on(t.invoiceId),
+    porPedido: index("deliveries_order_idx").on(t.salesOrderId),
+    porEstado: index("deliveries_status_idx").on(t.status),
+  }),
+);
+
+export const deliveryLines = pgTable(
+  "delivery_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryId: uuid("delivery_id")
+      .notNull()
+      .references(() => deliveries.id),
+    catalogItemId: uuid("catalog_item_id").references(() => catalogItems.id),
+    /** Que bloque salio del patio. Nulo en lo que no tiene patio (flete, mano de obra). */
+    blockTypeId: uuid("block_type_id"),
+    /** Que renglon de la factura se esta entregando, si viene de una. */
+    invoiceLineId: uuid("invoice_line_id").references(() => invoiceLines.id),
+    salesOrderLineId: uuid("sales_order_line_id").references(() => salesOrderLines.id),
+    /** Congelado, como se llamaba el dia de la entrega. */
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull(),
+    displayOrder: integer("display_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({
+    porDespacho: index("delivery_lines_delivery_idx").on(t.deliveryId),
+    porRenglonFactura: index("delivery_lines_invoice_line_idx").on(t.invoiceLineId),
+  }),
+);
+
+/**
+ * Las fotos de la carga, en su propia tabla.
+ *
+ * Aparte de `deliveries` a proposito: la lista de despachos se lee todo el
+ * tiempo y no puede arrastrar varios megas de fotos que nadie esta mirando.
+ * Aca se leen solo cuando alguien abre un despacho.
+ */
+export const deliveryPhotos = pgTable(
+  "delivery_photos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryId: uuid("delivery_id")
+      .notNull()
+      .references(() => deliveries.id),
+    /** La foto como dataURL, ya achicada por el telefono antes de subirla. */
+    dataUrl: text("data_url").notNull(),
+    caption: text("caption"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").references(() => users.id),
+  },
+  (t) => ({ porDespacho: index("delivery_photos_delivery_idx").on(t.deliveryId) }),
+);

@@ -94,8 +94,10 @@ ok((await patio(tipo.id)) === 200, "el patio baja de 600 a 200", String(await pa
 const movs = (await pedir(`/inventario/${tipo.id}/movimientos`)).cuerpo;
 const venta = movs.find((m) => m.reason === "venta");
 ok(venta?.quantity === -400, "queda un movimiento de venta por −400", String(venta?.quantity));
-ok(venta?.refType === "invoice" && venta?.refId === fac.cuerpo.id, "y apunta a la factura que lo explica");
-ok(/N° \d+/.test(venta?.note ?? ""), "con el número de la factura en la nota", venta?.note);
+// El bloque sale con el DESPACHO, no con la factura: la factura que se entrega
+// en el acto crea el suyo, y es el despacho el que mueve el patio.
+ok(venta?.refType === "delivery", "y apunta al despacho que lo explica", String(venta?.refType));
+ok(/CCF-|FCF-/.test(venta?.note ?? ""), "con el número de la factura en la nota", venta?.note);
 ok(
   (fac.cuerpo.avisos ?? []).some((a) => /empresa no tiene NRC/.test(a)),
   "avisa que a la empresa le falta el NRC para un crédito fiscal",
@@ -128,7 +130,7 @@ ok(
 );
 const movs2 = (await pedir(`/inventario/${tipo.id}/movimientos`)).cuerpo;
 ok(
-  movs2.some((m) => m.reason === "devolucion" && m.quantity === 400 && m.refId === fac.cuerpo.id),
+  movs2.some((m) => m.reason === "devolucion" && m.quantity === 400),
   "la devolución queda como movimiento, no como un borrado",
 );
 ok(movs2.some((m) => m.reason === "venta"), "y la venta original sigue en la historia");
@@ -165,7 +167,7 @@ const grande = await pedir("/invoices", {
 });
 ok(grande.estado === 201, "no se impide facturar: puede faltar anotar producción");
 ok(
-  (grande.cuerpo.avisos ?? []).some((a) => /había 200.*quedó en -300/.test(a)),
+  (grande.cuerpo.avisos ?? []).some((a) => /tenía 200.*quedó en -300/.test(a)),
   "pero avisa que la existencia quedó en −300",
   (grande.cuerpo.avisos ?? []).join(" | "),
 );

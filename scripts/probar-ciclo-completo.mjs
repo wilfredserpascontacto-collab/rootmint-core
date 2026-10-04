@@ -105,7 +105,8 @@ ok(patio1.existencia === 1000, "el patio tiene 1.000 sin que nadie los escribier
 ok(patio1.lotes === 2, "y sabe que salieron de 2 lotes", String(patio1.lotes));
 
 console.log("\n─── 8 · LA FACTURA ───");
-const fac = await pedir("/invoices", { quoteId: cot.id });
+// Sin «se lo lleva ahora»: es una obra, se factura hoy y el camion sale despues.
+const fac = await pedir("/invoices", { quoteId: cot.id, despacharAhora: false });
 ok(fac.estado < 300, "se factura la cotización");
 ok(fac.cuerpo.kind === "ccf", "y sale crédito fiscal, porque el cliente tiene NRC", fac.cuerpo.kind);
 ok(fac.cuerpo.businessSnapshot?.name === "Grupo Titán, S.A. de C.V.",
@@ -116,9 +117,15 @@ ok(!(fac.cuerpo.avisos ?? []).some((a) => /NRC cargado/.test(a)), "sin avisar qu
 
 console.log("\n─── 9 · ¿Y DESPUÉS DE FACTURAR? ───");
 const patio2 = (await pedir("/inventario")).cuerpo.find((x) => x.blockTypeId === tipo.id);
-ok(patio2.existencia === 0,
-   "el patio debería quedar en 0: esos 1.000 ya se vendieron",
-   patio2.existencia === 0 ? "" : `sigue diciendo ${patio2.existencia} — FACTURAR NO DESCUENTA`);
+ok(patio2.existencia === 1000,
+   "los 1.000 siguen en el patio: están vendidos pero no han salido",
+   String(patio2.existencia));
+ok(patio2.porDespachar === 1000,
+   "y figuran por despachar, esperando el camión",
+   String(patio2.porDespachar));
+ok(patio2.disponible === 0,
+   "así que lo libre para vender es 0: no se venden dos veces",
+   patio2.disponible === 0 ? "" : `dice ${patio2.disponible} — PROMETE BLOQUES YA VENDIDOS`);
 
 const cot2 = (await pedir("/quotes", {
   customerId: cliente.id, lines: [{ catalogItemId: producto.id, quantity: 900 }], taxRatePercent: 13,
@@ -128,13 +135,74 @@ ok(qp.lines[0].hayQueProducir === 900,
    "y una cotización nueva de 900 debería decir que hay que producir 900",
    qp.lines[0].hayQueProducir === 900 ? "" : `dice ${qp.lines[0].hayQueProducir} — PROMETE BLOQUES YA VENDIDOS`);
 
-console.log("\n─── 10 · ¿Y EL COBRO? ───");
+console.log("\n─── 10 · EL CAMIÓN SALE ───");
+const pendientes = await pedir(`/invoices/${fac.cuerpo.id}/por-despachar`);
+ok(pendientes.estado < 300 && pendientes.cuerpo.faltaAlgo,
+   "la factura sabe qué le falta entregar",
+   pendientes.estado < 300 ? "" : `no se puede preguntar (${pendientes.estado})`);
+const renglonBloques = (pendientes.cuerpo?.renglones ?? []).find((r) => r.blockTypeId);
+
+const viaje1 = await pedir("/despachos", {
+  invoiceId: fac.cuerpo.id,
+  receivedByName: "Maura, la maestra de obra",
+  address: "Lotificación El Níspero, lote 12",
+  driverName: "Chepe",
+  vehiclePlate: "P 123-456",
+  signature: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  lines: [{ invoiceLineId: renglonBloques?.id, quantity: 600 }],
+});
+ok(viaje1.estado < 300, "sale el primer viaje con 600, firmado por quien recibe",
+   viaje1.estado < 300 ? "" : JSON.stringify(viaje1.cuerpo).slice(0, 120));
+
+const patio3 = (await pedir("/inventario")).cuerpo.find((x) => x.blockTypeId === tipo.id);
+ok(patio3.existencia === 400, "ahora sí bajó el patio: quedan 400", String(patio3.existencia));
+ok(patio3.porDespachar === 400, "y 400 siguen esperando el segundo viaje", String(patio3.porDespachar));
+
+const viaje2 = await pedir("/despachos", {
+  invoiceId: fac.cuerpo.id,
+  receivedByName: "Maura",
+  lines: [{ invoiceLineId: renglonBloques?.id, quantity: 400 }],
+});
+ok(viaje2.estado < 300, "y el segundo viaje completa la entrega");
+const patio4 = (await pedir("/inventario")).cuerpo.find((x) => x.blockTypeId === tipo.id);
+ok(patio4.existencia === 0 && patio4.porDespachar === 0,
+   "el patio queda en 0 y no falta nada por entregar",
+   `${patio4.existencia} / ${patio4.porDespachar}`);
+
+const ficha = await pedir(`/despachos/${viaje1.cuerpo?.id}`);
+ok(Boolean(ficha.cuerpo?.signature), "y queda guardada la firma de quien recibió");
+
+console.log("\n─── 11 · ¿Y EL COBRO? ───");
 const cobro = await pedir(`/invoices/${fac.cuerpo.id}/pagos`, { amountCents: 10000 });
 ok(cobro.estado < 300, "se debería poder registrar que el cliente pagó",
    cobro.estado < 300 ? "" : `no existe dónde registrarlo (${cobro.estado})`);
 const estado = await pedir(`/customers/${cliente.id}/estado-cuenta`);
 ok(estado.estado < 300, "y ver cuánto debe este cliente",
    estado.estado < 300 ? "" : `no existe el estado de cuenta (${estado.estado})`);
+
+console.log("\n─── 12 · LO QUE TODAVÍA NO SE PUEDE ───");
+// Esta parte NO sale en verde a proposito: marca los huecos que quedan, para
+// que aparezcan en rojo cada vez que se corre en vez de olvidarse.
+const segunda = (await pedir("/invoices", {
+  customerId: cliente.id, despacharAhora: false,
+  lines: [{ catalogItemId: producto.id, quantity: 1 }],
+})).cuerpo;
+const unCheque = await pedir("/pagos", {
+  customerId: cliente.id, amountCents: 5000,
+  aplicaciones: [{ invoiceId: fac.cuerpo.id, amountCents: 2500 }, { invoiceId: segunda.id, amountCents: 2500 }],
+});
+ok(unCheque.estado < 300, "un solo cheque debería poder cubrir varias facturas",
+   unCheque.estado < 300 ? "" : `no existe (${unCheque.estado}) — HAY QUE TECLEAR UN COBRO POR FACTURA`);
+const anticipo = await pedir(`/customers/${cliente.id}/anticipos`, { amountCents: 50000 });
+ok(anticipo.estado < 300, "debería poder anotarse un anticipo antes de facturar",
+   anticipo.estado < 300 ? "" : `no existe (${anticipo.estado}) — EL 50% PARA ARRANCAR NO CABE EN NINGÚN LADO`);
+const nota = await pedir("/notas-credito", {
+  invoiceId: fac.cuerpo.id, lines: [{ catalogItemId: producto.id, quantity: 200 }],
+});
+// Ojo: una ruta que no existe NO da 404 — cae en la interfaz y contesta el HTML
+// con 200. Lo que se mira es si contesto algo que parece una nota de credito.
+ok(Boolean(nota.cuerpo?.id), "y una devolución de 200 bloques debería ser una nota de crédito",
+   nota.cuerpo?.id ? "" : "no existe — SOLO SE PUEDE ANULAR LA FACTURA ENTERA");
 
 const bien = pasos.filter((x) => x.b).length;
 console.log(`\n${bien} de ${pasos.length} pasos del ciclo funcionan hoy.`);
