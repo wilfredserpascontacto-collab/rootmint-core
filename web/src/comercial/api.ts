@@ -23,12 +23,34 @@ export const numeroFactura=(kind:string,n:number)=>(kind==="ccf"?"CCF-":"FCF-")+
 export type Quote = { id:string; number:number; customerId:string; issueDate:string; validityDays:number; status:string; subtotalCents:number; taxCents:number; totalCents:number; taxRateMilli?:number; description?:string; workLocation?:string; terms?:string; notes?:string; contactId?:string|null; customerSnapshot?:Customer; businessSnapshot?:Profile; lines?:Line[]; avisos?:string[] };
 import { avisarSinSesion } from "../acceso/sesion";
 
-export async function api<T>(path:string, method="GET", body?:unknown):Promise<T> {
+/**
+ * La llave que hace que reintentar no duplique.
+ *
+ * Se inventa una por intento de guardado y se guarda en la pestaña, así que
+ * sobrevive a que la página se recargue. Si el guardado sale bien se olvida,
+ * para que el siguiente documento lleve una nueva; si falla —se cayó el
+ * internet a medio camino, la pantalla se quedó pensando— se conserva, y el
+ * reintento llega con la misma llave: el servidor devuelve el documento que
+ * ya creó en lugar de crear otro.
+ */
+export function llaveDeGuardado(alcance:string):string {
+ const donde="idem:"+alcance;
+ const nueva=()=>(globalThis.crypto?.randomUUID?.() ?? String(Date.now())+"-"+Math.random().toString(36).slice(2));
+ try{ const v=sessionStorage.getItem(donde); if(v) return v; const n=nueva(); sessionStorage.setItem(donde,n); return n; }
+ catch{ return nueva(); }
+}
+/** Salió bien: la próxima vez que se guarde acá, que sea un documento nuevo. */
+export function olvidarLlave(alcance:string){ try{ sessionStorage.removeItem("idem:"+alcance) }catch{} }
+
+export async function api<T>(path:string, method="GET", body?:unknown, llave?:string):Promise<T> {
  // La cabecera de JSON solo cuando de verdad viaja un JSON. Anunciarla con el
  // cuerpo vacío —lo que pasa en todo DELETE— hace que Fastify conteste 400
  // «Body cannot be empty», un error en inglés y de la casa que no tiene nada
  // que ver con lo que la persona hizo.
- const response=await fetch(path,{ method, headers:body===undefined?undefined:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body) });
+ const cabeceras:Record<string,string>={};
+ if(body!==undefined) cabeceras["Content-Type"]="application/json";
+ if(llave) cabeceras["Idempotency-Key"]=llave;
+ const response=await fetch(path,{ method, headers:Object.keys(cabeceras).length?cabeceras:undefined,body:body===undefined?undefined:JSON.stringify(body) });
  const data=await response.json().catch(()=>null);
  // 401 no es un error de la pantalla: es que la sesion se acabo. La app
  // vuelve a la entrada en vez de mostrar un mensaje que nadie sabe resolver.

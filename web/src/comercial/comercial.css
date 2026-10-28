@@ -34,9 +34,18 @@
 
 #commercial .c-workspace-footer .c-credito-proveedor{color:#a3ab9d;letter-spacing:.5px}
 
-/* El nombre del cliente es más largo que el que estaba: cabe en una línea. */
-#commercial .c-logo{font-size:19px;letter-spacing:1px;white-space:nowrap}
+/*
+ * El nombre del cliente en la barra lateral.
+ *
+ * Antes iba en una sola línea y «Distribuidora La Esperanza, S.A. de C.V.» se
+ * leía «DISTRIBUIDORA LA»: cortado a la mitad y sin aviso. Y es lo primero que
+ * ve el cliente con su propio nombre encima. Ahora baja de línea en lugar de
+ * cortarse, y si es largo se encoge para no comerse media barra.
+ */
+#commercial .c-logo{font-size:19px;letter-spacing:1px;line-height:1.2;display:block;overflow-wrap:anywhere}
+#commercial .c-logo.larga{font-size:15px;letter-spacing:.5px}
 #commercial .c-logo small{padding-left:28px;letter-spacing:3px}
+#commercial .c-logo.larga small{padding-left:0;margin-top:7px}
 
 /* El nombre de quien esta adentro se pintaba claro sobre fondo claro: no se leia. */
 #commercial .quien strong{color:var(--ink)}

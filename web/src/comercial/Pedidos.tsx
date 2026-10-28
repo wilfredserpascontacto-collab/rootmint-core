@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, money, date, cents, numeroFactura, type Customer, type Item, type Factura } from "./api";
+import { api, llaveDeGuardado, olvidarLlave, money, date, cents, numeroFactura, type Customer, type Item, type Factura } from "./api";
 import { useData, ErrorBox, Field, Empty, Header } from "./piezas";
 import { useModulos } from "../acceso/modulos";
 
@@ -102,6 +102,8 @@ type RenglonNuevo = { catalogItemId: string; quantity: string };
 
 export function PedidoNuevo() {
   const navigate = useNavigate();
+  const { tiene } = useModulos();
+  const hayPlanta = tiene("bloques");
   const clientes = useData<Customer[]>("/customers");
   const items = useData<Item[]>("/catalog-items");
   const [clienteId, setClienteId] = useState("");
@@ -139,7 +141,9 @@ export function PedidoNuevo() {
   return (
     <>
       <Link className="c-back" to="/comercial/pedidos">← Pedidos</Link>
-      <Header title="Nuevo pedido" subtitle="Al crearlo se aparta del patio lo que haya libre de cada bloque." />
+      <Header title="Nuevo pedido" subtitle={hayPlanta
+        ? "Al crearlo se aparta del patio lo que haya libre de cada bloque."
+        : "Lo que el cliente ya encargó y todavía no se le factura."} />
       <form className="c-card c-pad" onSubmit={crear}>
         <div className="c-form-grid">
           <Field label="Cliente">
@@ -221,7 +225,9 @@ export function FichaPedido() {
     if (busy) return;
     setBusy(true); setFalla("");
     try {
-      const f = await api<Factura>("/invoices", "POST", { salesOrderId: id });
+      const alcance = "factura-pedido-" + id;
+      const f = await api<Factura>("/invoices", "POST", { salesOrderId: id }, llaveDeGuardado(alcance));
+      olvidarLlave(alcance);
       navigate("/comercial/facturas/" + f.id, { state: { avisos: f.avisos } });
     } catch (e) { setFalla((e as Error).message); setBusy(false); }
   }
@@ -348,6 +354,8 @@ export function FichaPedido() {
 /** En la ficha de una cotización: crear su pedido, o ir al que ya tiene. */
 export function PedidoDeCotizacion({ quoteId }: { quoteId: string }) {
   const navigate = useNavigate();
+  const { tiene } = useModulos();
+  const hayPlanta = tiene("bloques");
   const d = useData<PedidoFila[]>("/pedidos?estado=todos");
   const [busy, setBusy] = useState(false);
   const [falla, setFalla] = useState("");
@@ -372,7 +380,7 @@ export function PedidoDeCotizacion({ quoteId }: { quoteId: string }) {
         ? <Link className="c-link" to={"/comercial/pedidos/" + vivo.id}>Pedido {numeroPedido(vivo.number)} abierto →</Link>
         : hecho
           ? <Link className="c-link" to={"/comercial/pedidos/" + hecho.id}>Pedido {numeroPedido(hecho.number)} cumplido →</Link>
-          : <button disabled={busy} onClick={crear}>Crear pedido (aparta del patio)</button>}
+          : <button disabled={busy} onClick={crear}>{hayPlanta ? "Crear pedido (aparta del patio)" : "Crear pedido"}</button>}
       <ErrorBox message={falla} />
     </div>
   );

@@ -150,7 +150,7 @@ export function EstadoCuentaCliente({ clienteId }: { clienteId: string }) {
 
   return (
     <section className="c-card c-pad" aria-label="Estado de cuenta">
-      <div className="c-section-head"><h2>Estado de cuenta</h2>{x && <span>{x.facturas.filter(f => f.status === "issued").length} facturas</span>}</div>
+      <div className="c-section-head"><h2>Estado de cuenta</h2>{x && (() => { const n = x.facturas.filter(f => f.status === "issued").length; return <span>{n} {n === 1 ? "factura" : "facturas"}</span>; })()}</div>
       <ErrorBox message={e.error} />
       {x && (
         <>
