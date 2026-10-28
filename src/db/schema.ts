@@ -77,6 +77,28 @@ export const counters = pgTable("counters", {
   value: integer("value").notNull().default(0),
 });
 
+/**
+ * El recibo del guardado: qué documento salió de cada intento.
+ *
+ * La pantalla inventa una llave por cada intento de guardar y la repite si
+ * reintenta. Si la misma llave vuelve, acá está anotado qué se creó la
+ * primera vez y se devuelve eso en lugar de crear otro. Sin esto, un doble
+ * clic de la secretaria son dos cotizaciones —molesto— o dos créditos
+ * fiscales con números corridos por una sola venta, que ya hay que anular
+ * ante Hacienda.
+ *
+ * Se escribe dentro de la misma transacción que el documento, así que si el
+ * documento falla la llave tampoco queda: no existe el caso de una llave
+ * quemada sin nada que devolver.
+ */
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  key: text("key").primaryKey(),
+  scope: text("scope").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  userId: uuid("user_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // --- Identidad y acceso ----------------------------------------------------
 
 export const users = pgTable("users", {
