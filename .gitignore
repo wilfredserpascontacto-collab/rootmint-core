@@ -13,3 +13,5 @@ web/tsconfig.tsbuildinfo
 .local-data*/
 .test-data/
 .sites-runtime/
+# Lo que deja el arnés de pruebas: una base y un registro por prueba.
+.pruebas/
