@@ -7,6 +7,7 @@ import { quoteTotals } from "../lib/quote-math.js";
 import { logActivity } from "../lib/activity-log.js";
 import { nextCorrelativo } from "../lib/counters.js";
 import { getUserId } from "../lib/request-context.js";
+import { anotar, esLlaveRepetida, llaveDe, yaCreado } from "../lib/idempotencia.js";
 
 const lineInputSchema = z.object({
   catalogItemId: z.string().uuid().optional(),
@@ -220,8 +221,17 @@ export async function quotesRoutes(app: FastifyInstance) {
   app.post("/quotes", async (req, reply) => {
     const body = createSchema.parse(req.body);
     const userId = getUserId(req);
+    const llave = llaveDe(req);
 
-    const created = await db.transaction(async (tx) => {
+    // Si esta llave ya guardó una cotización, es la misma otra vez: se
+    // devuelve aquella en lugar de crear una gemela con otro número.
+    const previa = await yaCreado(db, llave, "quote");
+    if (previa) {
+      const quote = await loadQuoteWithLines(previa);
+      if (quote) return reply.code(200).send(quote);
+    }
+
+    const crear = () => db.transaction(async (tx) => {
       const [customer] = await tx.select().from(customers).where(and(eq(customers.id, body.customerId), isNull(customers.deletedAt), eq(customers.active, true)));
       if (!customer) throw Object.assign(new Error("Seleccione un cliente activo."), { statusCode: 400 });
       if (body.contactId) {
@@ -283,9 +293,24 @@ export async function quotesRoutes(app: FastifyInstance) {
         newValues: { ...quote, lines: insertedLines },
       });
 
+      await anotar(tx, llave, "quote", quote.id, userId);
+
       const credito = avisoDeCredito(customer, totalCents);
       return { ...quote, lines: insertedLines, avisos: credito ? [...avisos, credito] : avisos };
     });
+
+    let created;
+    try {
+      created = await crear();
+    } catch (error) {
+      // Dos guardados con la misma llave a la vez: el segundo choca al anotar.
+      // Que ya exista es justo lo que se quería, así que se devuelve aquella.
+      if (!esLlaveRepetida(error)) throw error;
+      const id = await yaCreado(db, llave, "quote");
+      const quote = id ? await loadQuoteWithLines(id) : null;
+      if (!quote) throw error;
+      return reply.code(200).send(quote);
+    }
 
     return reply.code(201).send(created);
   });

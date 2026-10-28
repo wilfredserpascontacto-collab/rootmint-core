@@ -24,6 +24,7 @@ import { existenciaDe, moverInventario } from "./inventario.js";
 import { cobradoPorFactura } from "./pagos.js";
 import { facturadoPorRenglon, reservadoPorTipo } from "../lib/reservas.js";
 import { crearDespacho, devolverAlPatio } from "./despachos.js";
+import { anotar, esLlaveRepetida, llaveDe, yaCreado } from "../lib/idempotencia.js";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -82,6 +83,25 @@ const dinero = (c: number) => `$${(c / 100).toFixed(2)}`;
  * consumidor final. El sistema PROPONE, no decide — quien factura puede tener
  * enfrente a alguien que trajo el NRC en un papel y todavia no esta cargado.
  */
+/** La factura como la devuelve la ficha: con sus renglones y su saldo. */
+async function cargarFactura(id: string) {
+  const [factura] = await db.select().from(invoices).where(eq(invoices.id, id));
+  if (!factura) return null;
+  const lineas = await db
+    .select()
+    .from(invoiceLines)
+    .where(and(eq(invoiceLines.invoiceId, id), isNull(invoiceLines.deletedAt)))
+    .orderBy(invoiceLines.displayOrder);
+  const cobrado =
+    factura.status === "annulled" ? 0 : ((await cobradoPorFactura(db, [id])).get(id) ?? 0);
+  return {
+    ...factura,
+    lines: lineas,
+    cobradoCents: cobrado,
+    saldoCents: factura.status === "annulled" ? 0 : factura.totalCents - cobrado,
+  };
+}
+
 function tipoSugerido(cliente: { nrc: string | null }): "ccf" | "final" {
   return cliente.nrc && cliente.nrc.trim() !== "" ? "ccf" : "final";
 }
@@ -217,21 +237,9 @@ export async function invoicesRoutes(app: FastifyInstance) {
 
   app.get("/invoices/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const [factura] = await db.select().from(invoices).where(eq(invoices.id, id));
+    const factura = await cargarFactura(id);
     if (!factura) return reply.code(404).send({ error: "Esa factura no existe." });
-    const lineas = await db
-      .select()
-      .from(invoiceLines)
-      .where(and(eq(invoiceLines.invoiceId, id), isNull(invoiceLines.deletedAt)))
-      .orderBy(invoiceLines.displayOrder);
-    const cobrado =
-      factura.status === "annulled" ? 0 : ((await cobradoPorFactura(db, [id])).get(id) ?? 0);
-    return {
-      ...factura,
-      lines: lineas,
-      cobradoCents: cobrado,
-      saldoCents: factura.status === "annulled" ? 0 : factura.totalCents - cobrado,
-    };
+    return factura;
   });
 
   /** Que falta facturar de una cotizacion, renglon por renglon. */
@@ -251,12 +259,21 @@ export async function invoicesRoutes(app: FastifyInstance) {
       });
     }
 
+    const llave = llaveDe(req);
+    // Acá importa más que en cotizaciones: dos créditos fiscales con números
+    // corridos por una sola venta hay que anularlos ante Hacienda.
+    const previa = await yaCreado(db, llave, "invoice");
+    if (previa) {
+      const vieja = await cargarFactura(previa);
+      if (vieja) return reply.code(200).send(vieja);
+    }
+
     // Se lo lleva en el acto salvo que digan lo contrario: es lo que hacia el
     // sistema antes del despacho, y es el caso comun en una bloquera.
     const seLoLleva = body.despacharAhora !== false;
     let despachoNumero: number | null = null;
 
-    const resultado = await db.transaction(async (tx) => {
+    const crear = () => db.transaction(async (tx) => {
       const avisos: string[] = [];
 
       // --- De donde sale ---------------------------------------------------
@@ -495,8 +512,21 @@ export async function invoicesRoutes(app: FastifyInstance) {
         newValues: { kind, number, totalCents: factura.totalCents, quoteId: factura.quoteId },
       });
 
+      await anotar(tx, llave, "invoice", factura.id, getUserId(req));
+
       return { factura, avisos };
     });
+
+    let resultado;
+    try {
+      resultado = await crear();
+    } catch (error) {
+      if (!esLlaveRepetida(error)) throw error;
+      const id = await yaCreado(db, llave, "invoice");
+      const vieja = id ? await cargarFactura(id) : null;
+      if (!vieja) throw error;
+      return reply.code(200).send(vieja);
+    }
 
     return reply.code(201).send({
       ...resultado.factura,
